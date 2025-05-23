@@ -7,7 +7,7 @@
 # • Mouse support enabled; windows stay open on crash.
 # • Re-running the script restarts any crashed miner and
 #   tops-up to the requested count.
-# • Nodes 0-2 run in public mode, the rest in private mode
+# • Nodes 0-1 run in public mode, the rest in private mode
 # ------------------------------------------------------------
 
 set -euo pipefail
@@ -35,14 +35,14 @@ start_miner () {
   
   # Determine if this miner should be public or private
   local miner_args=("$idx")
-  if (( idx > 2 )); then
+  if (( idx > 1 )); then
     miner_args=("--private" "$idx")
   fi
 
   # Create window if missing
   if ! tmux list-windows -t "$SESSION" -F '#W' | grep -qx "$win"; then
     tmux new-window -t "$SESSION" -n "$win" "$LAUNCHER" "${miner_args[@]}"
-    echo "[run_miners] Launched $win ($([[ $idx -le 2 ]] && echo public || echo private))"
+    echo "[run_miners] Launched $win ($([[ $idx -le 1 ]] && echo public || echo private))"
     return
   fi
 

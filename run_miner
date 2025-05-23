@@ -53,34 +53,33 @@ cd "${NODE_DIR}"
 rm -f nockchain.sock
 
 # ---------- 6. Build networking flags ------------------------
-ALLOWED_FILE="${NODE_DIR}/allowed_peers.txt"
 PEER_FLAGS=()
 if $PRIVATE; then
-  # 6a. Collect peer-IDs and generate allowed list
-  > "${ALLOWED_FILE}"
-  while IFS= read -r -d '' peerid_file; do
-    cat "$peerid_file" >> "${ALLOWED_FILE}"
-    echo >> "${ALLOWED_FILE}"  # Ensure each peer ID is on a new line
-  done < <(find "${REPO_ROOT}" -maxdepth 2 -name '.nockchain_identity.peerid' -type f -print0)
-  # Remove duplicate lines while preserving order
-  sort -u "${ALLOWED_FILE}" -o "${ALLOWED_FILE}"
-
-  # 6b. Build --peer list for every miner (except self)
-  while IFS= read -r -d '' dir; do
-    idx=${dir##*-}
-    [[ "$idx" =~ ^[0-9]+$ ]] || continue
-    (( idx == INDEX )) && continue
-    peer_port=$((3006 + idx))
-    PEER_FLAGS+=( --peer "/ip4/127.0.0.1/udp/${peer_port}/quic-v1" )
-  done < <(find "${REPO_ROOT}" -maxdepth 1 -type d -name 'miner-node-*' -print0)
-
-  # always include the gateway (index 0) even if self
+  # For private/follower nodes:
+  # - Don't bind to the network (no --bind parameter)
+  # - Connect to local gateway nodes (0-2)
   PEER_FLAGS+=( --peer "/ip4/127.0.0.1/udp/3006/quic-v1" )
-
-  # mandatory extra flags
-  PEER_FLAGS+=( --no-default-peers --allowed-peers-path "${ALLOWED_FILE}" )
-  BIND_ADDR="/ip4/127.0.0.1/udp/${PORT}/quic-v1"
+  PEER_FLAGS+=( --peer "/ip4/127.0.0.1/udp/3007/quic-v1" )
+  
+  # Add backup public peers
+  PEER_FLAGS+=( --peer "/ip4/95.216.102.60/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.108.123.225/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.109.156.108/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.21.67.175/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.109.156.172/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.174.22.166/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.95.155.151/udp/30000/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.18.98.38/udp/30000/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/96.230.252.205/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/94.205.40.29/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/159.112.204.186/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/88.0.59.61/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/217.14.223.78/udp/3006/quic-v1" )
+  
+  #PEER_FLAGS+=( --no-default-peers )
+  BIND_ADDR=""  # No binding for private nodes
 else
+  # Public nodes bind to all interfaces
   BIND_ADDR="/ip4/0.0.0.0/udp/${PORT}/quic-v1"
 fi
 
@@ -89,23 +88,40 @@ cat <<EOF
 ------------------------------------------------------------
 [run_miner] CONFIGURATION
   INDEX            = ${INDEX}
-  MODE             = $([[ $PRIVATE == true ]] && echo "PRIVATE" || echo "PUBLIC")
+  MODE             = $([[ $PRIVATE == true ]] && echo "PRIVATE (follower)" || echo "PUBLIC (gateway)") 
   UDP PORT         = ${PORT}
   NODE_DIR         = ${NODE_DIR}
   NPC SOCKET       = ${NODE_DIR}/nockchain.sock
   MINING_PUBKEY    = ${MINING_PUBKEY}
   BTC_NODE_URL     = ${BTC_NODE_URL}
-  PEER_FLAGS       = ${PEER_FLAGS[*]:-(none)}
+  BIND_ADDR        = ${BIND_ADDR:-none (follower mode)}
+  PEER_FLAGS       = ${PEER_FLAGS[*]:-(default peers)}
   EXTRA ARGS       = $*
 ------------------------------------------------------------
 EOF
 
 # ---------- 8. Launch ----------------------------------------
-exec nockchain \
-  --npc-socket nockchain.sock \
-  --mining-pubkey "${MINING_PUBKEY}" \
-  --bind "${BIND_ADDR}" \
-  --mine \
-  --btc-node-url "${BTC_NODE_URL}" \
-  "${PEER_FLAGS[@]}" \
-  "$@"
+NOCKCHAIN_CMD=(
+  nockchain
+  --npc-socket nockchain.sock
+  --mining-pubkey "${MINING_PUBKEY}"
+  --mine
+  --btc-node-url "${BTC_NODE_URL}"
+)
+
+# Add bind address only for public nodes
+if [[ -n "$BIND_ADDR" ]]; then
+  NOCKCHAIN_CMD+=(--bind "${BIND_ADDR}")
+fi
+
+# Add peer flags if any
+if (( ${#PEER_FLAGS[@]} > 0 )); then
+  NOCKCHAIN_CMD+=("${PEER_FLAGS[@]}")
+fi
+
+# Add any extra arguments
+if (( $# > 0 )); then
+  NOCKCHAIN_CMD+=("$@")
+fi
+
+exec "${NOCKCHAIN_CMD[@]}"
