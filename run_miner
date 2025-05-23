@@ -57,9 +57,8 @@ PEER_FLAGS=()
 if $PRIVATE; then
   # For private/follower nodes:
   # - Don't bind to the network (no --bind parameter)
-  # - Connect to local gateway nodes (0-2)
+  # - Connect to local gateway node(s)
   PEER_FLAGS+=( --peer "/ip4/127.0.0.1/udp/3006/quic-v1" )
-  PEER_FLAGS+=( --peer "/ip4/127.0.0.1/udp/3007/quic-v1" )
   
   # Add backup public peers
   PEER_FLAGS+=( --peer "/ip4/95.216.102.60/udp/3006/quic-v1" )
@@ -76,7 +75,7 @@ if $PRIVATE; then
   PEER_FLAGS+=( --peer "/ip4/88.0.59.61/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/217.14.223.78/udp/3006/quic-v1" )
   
-  PEER_FLAGS+=( --no-default-peers )
+  #PEER_FLAGS+=( --no-default-peers )
   BIND_ADDR=""  # No binding for private nodes
 else
   # Public nodes bind to all interfaces
