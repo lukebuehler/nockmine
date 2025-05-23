@@ -7,7 +7,7 @@ REPO_ROOT="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="$REPO_ROOT/.nockchain_wallet_config"
  
 # Socket path - find first available socket
-SOCKET=$(find "$REPO_ROOT/miner-node-2" -name "nockchain.sock" 2>/dev/null | head -1)
+SOCKET=$(find "$REPO_ROOT/miner-node-0" -name "nockchain.sock" 2>/dev/null | head -1)
  
 # Colors
 GREEN='\033[0;32m'
