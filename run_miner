@@ -1,16 +1,26 @@
 #!/usr/bin/env bash
 # ------------------------------------------------------------
-# run_nockchain.sh
+# run_miner.sh  [--private|-l|--public] [INDEX] [extra args…]
 #
-# Launch a Nockchain miner/follower node and, for any index > 0,
-# automatically connect to the node at index 0 (port 3006).
-#
-# All extra arguments placed *after* the index are forwarded to nockchain.
+# --private / -l : LAN-only.
+#   • binds to 127.0.0.1
+#   • gathers ALL local miner peer-IDs and passes:
+#       --peer <addr>  (repeated)
+#       --no-default-peers
+#       --allowed-peers-path <file>
+# --public (default): binds 0.0.0.0 and uses default peers.
 # ------------------------------------------------------------
 
 set -euo pipefail
 
-# --- 0. Parse index (default 0) -------------------------------
+# ---------- 0. Parse --private flag --------------------------
+PRIVATE=false
+case "${1:-}" in
+  --private|-l) PRIVATE=true; shift ;;
+  --public)     shift ;;                # explicit public
+esac
+
+# ---------- 1. Parse index (default 0) -----------------------
 if (( $# > 0 )) && [[ $1 =~ ^[0-9]+$ ]]; then
   INDEX="$1"; shift
 else
@@ -18,10 +28,10 @@ else
 fi
 PORT=$((3006 + INDEX))
 
-# --- 1. Locate repo root --------------------------------------
+# ---------- 2. Locate repo root ------------------------------
 REPO_ROOT="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# --- 2. Load .env ---------------------------------------------
+# ---------- 3. Load .env -------------------------------------
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   set -a
   # shellcheck disable=SC1090
@@ -29,38 +39,57 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
   set +a
 fi
 
-# --- 3. Defaults ----------------------------------------------
+# ---------- 4. Defaults --------------------------------------
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
-export RUST_LOG="${RUST_LOG:-info,nockchain=info,nockchain_libp2p_io=info,libp2p=info,libp2p_quic=info}"
+export RUST_LOG="${RUST_LOG:-info,nockchain=info,nockchain::nc=off,libp2p=warn,libp2p_quic=warn}"
 export MINIMAL_LOG_FORMAT="${MINIMAL_LOG_FORMAT:-true}"
 export MINING_PUBKEY="${MINING_PUBKEY:-3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR}"
-
 BTC_NODE_URL="https://bitcoin-rpc.publicnode.com"
 
-# --- 4. Working dir & socket ----------------------------------
+# ---------- 5. Working dir & socket --------------------------
 NODE_DIR="${REPO_ROOT}/miner-node-${INDEX}"
 mkdir -p "${NODE_DIR}"
 cd "${NODE_DIR}"
 rm -f nockchain.sock
 
-# --- 5. Peer settings -----------------------------------------
-if [[ "$INDEX" == "0" ]]; then
-  BIND_ADDR="/ip4/0.0.0.0/udp/${PORT}/quic-v1"
-  PEER_FLAGS=()                       # talk to public network
-else
+# ---------- 6. Build networking flags ------------------------
+ALLOWED_FILE="${NODE_DIR}/allowed_peers.txt"
+PEER_FLAGS=()
+if $PRIVATE; then
+  # 6a. Collect peer-IDs and generate allowed list
+  > "${ALLOWED_FILE}"
+  while IFS= read -r -d '' peerid_file; do
+    cat "$peerid_file" >> "${ALLOWED_FILE}"
+    echo >> "${ALLOWED_FILE}"  # Ensure each peer ID is on a new line
+  done < <(find "${REPO_ROOT}" -maxdepth 2 -name '.nockchain_identity.peerid' -type f -print0)
+  # Remove duplicate lines while preserving order
+  sort -u "${ALLOWED_FILE}" -o "${ALLOWED_FILE}"
+
+  # 6b. Build --peer list for every miner (except self)
+  while IFS= read -r -d '' dir; do
+    idx=${dir##*-}
+    [[ "$idx" =~ ^[0-9]+$ ]] || continue
+    (( idx == INDEX )) && continue
+    peer_port=$((3006 + idx))
+    PEER_FLAGS+=( --peer "/ip4/127.0.0.1/udp/${peer_port}/quic-v1" )
+  done < <(find "${REPO_ROOT}" -maxdepth 1 -type d -name 'miner-node-*' -print0)
+
+  # always include the gateway (index 0) even if self
+  PEER_FLAGS+=( --peer "/ip4/127.0.0.1/udp/3006/quic-v1" )
+
+  # mandatory extra flags
+  PEER_FLAGS+=( --no-default-peers --allowed-peers-path "${ALLOWED_FILE}" )
   BIND_ADDR="/ip4/127.0.0.1/udp/${PORT}/quic-v1"
-  PEER_FILE="${REPO_ROOT}/miner-node-0/.nockchain_identity.peerid"
-  PEER_FLAGS=( --peer "/ip4/127.0.0.1/udp/3006/quic-v1" \
-               --no-default-peers \
-               --allowed-peers-path "${PEER_FILE}" 
-               )
+else
+  BIND_ADDR="/ip4/0.0.0.0/udp/${PORT}/quic-v1"
 fi
 
-# --- 6. Banner -------------------------------------------------
+# ---------- 7. Banner ----------------------------------------
 cat <<EOF
 ------------------------------------------------------------
-[run_nockchain] CONFIGURATION
+[run_miner] CONFIGURATION
   INDEX            = ${INDEX}
+  MODE             = $([[ $PRIVATE == true ]] && echo "PRIVATE" || echo "PUBLIC")
   UDP PORT         = ${PORT}
   NODE_DIR         = ${NODE_DIR}
   NPC SOCKET       = ${NODE_DIR}/nockchain.sock
@@ -71,11 +100,11 @@ cat <<EOF
 ------------------------------------------------------------
 EOF
 
-# --- 7. Launch -------------------------------------------------
-nockchain \
+# ---------- 8. Launch ----------------------------------------
+exec nockchain \
   --npc-socket nockchain.sock \
   --mining-pubkey "${MINING_PUBKEY}" \
-  --bind /ip4/0.0.0.0/udp/${PORT}/quic-v1 \
+  --bind "${BIND_ADDR}" \
   --mine \
   --btc-node-url "${BTC_NODE_URL}" \
   "${PEER_FLAGS[@]}" \
