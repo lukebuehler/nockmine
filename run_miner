@@ -30,8 +30,7 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
 fi
 
 # --- 3. Defaults ----------------------------------------------
-export RUST_BACKTRACE="${RUST_BACKTRACE:-full}"
-export RUST_LOG="${RUST_LOG:-info,nockchain=debug}"
+export RUST_LOG="${RUST_LOG:-info,nockchain=info,nockchain_libp2p_io=info,libp2p=info,libp2p_quic=info}"
 export MINIMAL_LOG_FORMAT="${MINIMAL_LOG_FORMAT:-true}"
 export MINING_PUBKEY="${MINING_PUBKEY:-3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR}"
 BTC_NODE_URL="https://bitcoin-rpc.publicnode.com"
@@ -43,12 +42,15 @@ cd "${NODE_DIR}"
 rm -f nockchain.sock
 
 # --- 5. Peer settings -----------------------------------------
-if [[ "$INDEX" != "0" ]]; then
-  PEER_ADDR="/ip4/127.0.0.1/udp/3006/quic-v1"
-  #PEER_FLAGS=(--peer "${PEER_ADDR}" --new-peer-id --no-default-peers)
-  PEER_FLAGS=(--peer "${PEER_ADDR}")
+if [[ "$INDEX" == "0" ]]; then
+  BIND_ADDR="/ip4/0.0.0.0/udp/${PORT}/quic-v1"
+  PEER_FLAGS=()                       # talk to public network
 else
-  PEER_FLAGS=()
+  BIND_ADDR="/ip4/127.0.0.1/udp/${PORT}/quic-v1"
+  PEER_FLAGS=( --peer "/ip4/127.0.0.1/udp/3006/quic-v1" \
+               --no-default-peers \
+               --max-established-outgoing 1 \
+               --max-pending-outgoing 1 )
 fi
 
 # --- 6. Banner -------------------------------------------------
