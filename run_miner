@@ -67,16 +67,16 @@ if $PRIVATE; then
   PEER_FLAGS+=( --peer "/ip4/65.109.156.108/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/65.21.67.175/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/65.109.156.172/udp/3006/quic-v1" )
-  PEER_FLAGS+=( --peer "/ip4/34.174.22.166/udp/3006/quic-v1" )
-  PEER_FLAGS+=( --peer "/ip4/34.95.155.151/udp/30000/quic-v1" )
-  PEER_FLAGS+=( --peer "/ip4/34.18.98.38/udp/30000/quic-v1" )
-  PEER_FLAGS+=( --peer "/ip4/96.230.252.205/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/34.174.22.166/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/34.95.155.151/udp/30000/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/34.18.98.38/udp/30000/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/96.230.252.205/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/94.205.40.29/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/159.112.204.186/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/88.0.59.61/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/217.14.223.78/udp/3006/quic-v1" )
   
-  #PEER_FLAGS+=( --no-default-peers )
+  PEER_FLAGS+=( --no-default-peers )
   BIND_ADDR=""  # No binding for private nodes
 else
   # Public nodes bind to all interfaces
