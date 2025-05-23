@@ -34,6 +34,7 @@ export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 export RUST_LOG="${RUST_LOG:-info,nockchain=info,nockchain_libp2p_io=info,libp2p=info,libp2p_quic=info}"
 export MINIMAL_LOG_FORMAT="${MINIMAL_LOG_FORMAT:-true}"
 export MINING_PUBKEY="${MINING_PUBKEY:-3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR}"
+
 BTC_NODE_URL="https://bitcoin-rpc.publicnode.com"
 
 # --- 4. Working dir & socket ----------------------------------
@@ -48,10 +49,11 @@ if [[ "$INDEX" == "0" ]]; then
   PEER_FLAGS=()                       # talk to public network
 else
   BIND_ADDR="/ip4/127.0.0.1/udp/${PORT}/quic-v1"
+  PEER_FILE="${REPO_ROOT}/miner-node-0/.nockchain_identity.peerid"
   PEER_FLAGS=( --peer "/ip4/127.0.0.1/udp/3006/quic-v1" \
                --no-default-peers \
-               --max-established-outgoing 1 \
-               --max-pending-outgoing 1 )
+               --allowed-peers-path "${PEER_FILE}" 
+               )
 fi
 
 # --- 6. Banner -------------------------------------------------

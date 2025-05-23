@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# check_balance.sh [INDEX] [PUBKEY]
+#
+# Query a nockchain-wallet balance from the local miner socket.
+#   INDEX  – miner node number (default 0)
+#   PUBKEY – mining / wallet pubkey (default comes from .env or hard-coded)
+# ------------------------------------------------------------
+
+set -euo pipefail
+
+# --- locate repo root (directory of this script) -------------
+REPO_ROOT="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- load .env if present ------------------------------------
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${REPO_ROOT}/.env"
+  set +a
+fi
+
+# --- positional-arg dance ------------------------------------
+INDEX=0
+PUBKEY_ARG=""
+
+# first arg numeric? → index
+if (( $# > 0 )) && [[ $1 =~ ^[0-9]+$ ]]; then
+  INDEX="$1"
+  shift
+fi
+
+# next arg (if any) → pubkey override
+if (( $# > 0 )); then
+  PUBKEY_ARG="$1"
+  shift
+fi
+
+# --- defaults ------------------------------------------------
+DEFAULT_PUBKEY="3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR"
+PUBKEY="${PUBKEY_ARG:-${MINING_PUBKEY:-$DEFAULT_PUBKEY}}"
+
+SOCKET="${REPO_ROOT}/miner-node-${INDEX}/nockchain.sock"
+
+if [[ ! -S "$SOCKET" ]]; then
+  echo "[check_balance] ❌ Socket not found: $SOCKET" >&2
+  exit 1
+fi
+
+# --- run the wallet CLI --------------------------------------
+echo "[check_balance] ▶ node index: ${INDEX}"
+echo "[check_balance] ▶ socket    : ${SOCKET}"
+echo "[check_balance] ▶ pubkey    : ${PUBKEY}"
+echo
+
+exec nockchain-wallet \
+  --nockchain-socket "$SOCKET" \
+  list-notes-by-pubkey -p "$PUBKEY"
