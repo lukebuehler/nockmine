@@ -30,6 +30,7 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
 fi
 
 # --- 3. Defaults ----------------------------------------------
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 export RUST_LOG="${RUST_LOG:-info,nockchain=info,nockchain_libp2p_io=info,libp2p=info,libp2p_quic=info}"
 export MINIMAL_LOG_FORMAT="${MINIMAL_LOG_FORMAT:-true}"
 export MINING_PUBKEY="${MINING_PUBKEY:-3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR}"
@@ -69,7 +70,7 @@ cat <<EOF
 EOF
 
 # --- 7. Launch -------------------------------------------------
-RUST_BACKTRACE=1 cargo run --release --bin nockchain -- \
+nockchain \
   --npc-socket nockchain.sock \
   --mining-pubkey "${MINING_PUBKEY}" \
   --bind /ip4/0.0.0.0/udp/${PORT}/quic-v1 \
