@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# run_nockchain.sh
+#
+# Launch a Nockchain miner/follower node and, for any index > 0,
+# automatically connect to the node at index 0 (port 3006).
+#
+# All extra arguments placed *after* the index are forwarded to nockchain.
+# ------------------------------------------------------------
+
+set -euo pipefail
+
+# --- 0. Parse index (default 0) -------------------------------
+if (( $# > 0 )) && [[ $1 =~ ^[0-9]+$ ]]; then
+  INDEX="$1"; shift
+else
+  INDEX="0"
+fi
+PORT=$((3006 + INDEX))
+
+# --- 1. Locate repo root --------------------------------------
+REPO_ROOT="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# --- 2. Load .env ---------------------------------------------
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${REPO_ROOT}/.env"
+  set +a
+fi
+
+# --- 3. Defaults ----------------------------------------------
+export RUST_BACKTRACE="${RUST_BACKTRACE:-full}"
+export RUST_LOG="${RUST_LOG:-info,nockchain=debug}"
+export MINIMAL_LOG_FORMAT="${MINIMAL_LOG_FORMAT:-true}"
+export MINING_PUBKEY="${MINING_PUBKEY:-3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR}"
+BTC_NODE_URL="https://bitcoin-rpc.publicnode.com"
+
+# --- 4. Working dir & socket ----------------------------------
+NODE_DIR="${REPO_ROOT}/miner-node-${INDEX}"
+mkdir -p "${NODE_DIR}"
+cd "${NODE_DIR}"
+rm -f nockchain.sock
+
+# --- 5. Peer settings -----------------------------------------
+if [[ "$INDEX" != "0" ]]; then
+  PEER_ADDR="/ip4/127.0.0.1/udp/3006/quic-v1"
+  #PEER_FLAGS=(--peer "${PEER_ADDR}" --new-peer-id --no-default-peers)
+  PEER_FLAGS=(--peer "${PEER_ADDR}")
+else
+  PEER_FLAGS=()
+fi
+
+# --- 6. Banner -------------------------------------------------
+cat <<EOF
+------------------------------------------------------------
+[run_nockchain] CONFIGURATION
+  INDEX            = ${INDEX}
+  UDP PORT         = ${PORT}
+  NODE_DIR         = ${NODE_DIR}
+  NPC SOCKET       = ${NODE_DIR}/nockchain.sock
+  MINING_PUBKEY    = ${MINING_PUBKEY}
+  BTC_NODE_URL     = ${BTC_NODE_URL}
+  PEER_FLAGS       = ${PEER_FLAGS[*]:-(none)}
+  EXTRA ARGS       = $*
+------------------------------------------------------------
+EOF
+
+# --- 7. Launch -------------------------------------------------
+RUST_BACKTRACE=1 cargo run --release --bin nockchain -- \
+  --npc-socket nockchain.sock \
+  --mining-pubkey "${MINING_PUBKEY}" \
+  --bind /ip4/0.0.0.0/udp/${PORT}/quic-v1 \
+  --mine \
+  --btc-node-url "${BTC_NODE_URL}" \
+  "${PEER_FLAGS[@]}" \
+  "$@"

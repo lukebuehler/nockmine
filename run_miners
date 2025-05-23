@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# run_miners.sh [NUM_MINERS]   (defaults to 16)
+#
+# • One tmux session "miners".
+# • Window order:  ctrl | htop | miner_0 … miner_{N-1}
+# • Mouse support enabled; windows stay open on crash.
+# • Re-running the script restarts any crashed miner and
+#   tops-up to the requested count.
+# ------------------------------------------------------------
+
+set -euo pipefail
+
+NUM_MINERS="${1:-16}"
+SESSION="miners"
+SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+LAUNCHER="${SCRIPT_DIR}/run_miner"
+
+# ---------- 1. Ensure session exists with ctrl + htop --------
+if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+  tmux new-session -d -s "$SESSION" -n "ctrl" "bash"
+  tmux new-window  -t "${SESSION}:1" -n "htop" "htop"
+  echo "[run_miners] Created tmux session '$SESSION'"
+fi
+
+# ---------- 2. Global / window options -----------------------
+tmux set-option        -t "$SESSION" -g mouse on
+tmux set-window-option -t "$SESSION" -g remain-on-exit on
+
+# ---------- 3. Helper: start / restart a miner ---------------
+start_miner () {
+  local idx="$1"
+  local win="miner_${idx}"
+
+  # Create window if missing
+  if ! tmux list-windows -t "$SESSION" -F '#W' | grep -qx "$win"; then
+    tmux new-window -t "$SESSION" -n "$win" "$LAUNCHER" "$idx"
+    echo "[run_miners] Launched $win"
+    return
+  fi
+
+  # Window exists – is its pane still running?
+  local pane_pid
+  pane_pid=$(tmux list-panes -t "${SESSION}:${win}" \
+             -F '#{?pane_active,#{pane_pid},}' | grep -E '^[0-9]+$' || true)
+
+  if [[ -z "$pane_pid" ]] || ! ps -p "$pane_pid" >/dev/null 2>&1; then
+    echo "[run_miners] Respawning $win (previous pane exited)"
+    # tmux ≥1.8 supports respawn-window; fall back if older
+    if tmux respawn-window -k -t "${SESSION}:${win}" "$LAUNCHER" "$idx" 2>/dev/null; then
+      : # respawned successfully
+    else
+      tmux kill-window -t "${SESSION}:${win}" 2>/dev/null || true
+      tmux new-window  -t "$SESSION" -n "$win" "$LAUNCHER" "$idx"
+    fi
+  fi
+}
+
+# ---------- 4. Ensure requested miners -----------------------
+for i in $(seq 0 $((NUM_MINERS-1))); do
+  start_miner "$i"
+done
+
+echo
+echo "✅  ${NUM_MINERS} miners (plus htop) managed in tmux session '$SESSION'."
+echo "🔗  Attach with:   tmux attach -t $SESSION"
+echo "💡  Windows persist; rerun this script to revive any that died."
