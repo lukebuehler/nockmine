@@ -4,22 +4,6 @@ export RUST_LOG
 export MINIMAL_LOG_FORMAT
 export MINING_PUBKEY
 
-# Parse index (default 0)
-if (( $# > 0 )) && [[ $1 =~ ^[0-9]+$ ]]; then
-  INDEX="$1"; shift
-else
-  INDEX="0"
-fi
-
-# Locate repo root
-REPO_ROOT="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-
-# Working dir & socket
-NODE_DIR="${REPO_ROOT}/miner-node-${INDEX}"
-mkdir -p "${NODE_DIR}"
-cd "${NODE_DIR}"
-rm -f nockchain.sock
-
 get_cpu_count() {
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
@@ -36,7 +20,6 @@ total_threads=$(get_cpu_count)
 # Subtract 4
 num_threads=$((total_threads * 2 - 4))
 
-echo "Mining pubkey: ${MINING_PUBKEY}"
 echo "Starting nockchain miner with $num_threads mining threads:"
 
 nockchain --mining-pubkey ${MINING_PUBKEY} --mine --num-threads $num_threads

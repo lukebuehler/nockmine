@@ -1,22 +1,19 @@
 #!/usr/bin/env bash
 # ------------------------------------------------------------
-# run_miners.sh [NUM_MINERS] [NUM_PUBLIC]
+# run_miners.sh [NUM_MINERS]
 #
-# • NUM_MINERS: Total number of miners to run (default: 16)
-# • NUM_PUBLIC: Number of public/leader nodes (default: 1)
+# • NUM_MINERS: Total number of miners to run (default: 1)
 #
 # • One tmux session "miners".
 # • Window order:  ctrl | htop | miner_0 … miner_{N-1}
 # • Mouse support enabled; windows stay open on crash.
 # • Re-running the script restarts any crashed miner and
 #   tops-up to the requested count.
-# • First N nodes are public, the rest are private
 # ------------------------------------------------------------
 
 set -euo pipefail
 
-NUM_MINERS="${1:-16}"
-NUM_PUBLIC="${2:-1}"
+NUM_MINERS="${1:-1}"
 SESSION="miners"
 SCRIPT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LAUNCHER="${SCRIPT_DIR}/run_miner"
@@ -37,16 +34,10 @@ start_miner () {
   local idx="$1"
   local win="miner_${idx}"
   
-  # Determine if this miner should be public or private
-  local miner_args=("$idx")
-  if (( idx >= NUM_PUBLIC )); then
-    miner_args=("--private" "$idx")
-  fi
-
   # Create window if missing
   if ! tmux list-windows -t "$SESSION" -F '#W' | grep -qx "$win"; then
-    tmux new-window -t "$SESSION" -n "$win" "$LAUNCHER" "${miner_args[@]}"
-    echo "[run_miners] Launched $win ($([[ $idx -lt $NUM_PUBLIC ]] && echo "public" || echo "private"))"
+    tmux new-window -t "$SESSION" -n "$win" "$LAUNCHER" "$idx"
+    echo "[run_miners] Launched $win"
     return
   fi
 
@@ -56,13 +47,13 @@ start_miner () {
              -F '#{?pane_active,#{pane_pid},}' | grep -E '^[0-9]+$' || true)
 
   if [[ -z "$pane_pid" ]] || ! ps -p "$pane_pid" >/dev/null 2>&1; then
-    echo "[run_miners] Respawning $win ($([[ $idx -lt $NUM_PUBLIC ]] && echo "public" || echo "private"))"
+    echo "[run_miners] Respawning $win"
     # tmux ≥1.8 supports respawn-window; fall back if older
-    if tmux respawn-window -k -t "${SESSION}:${win}" "$LAUNCHER" "${miner_args[@]}" 2>/dev/null; then
+    if tmux respawn-window -k -t "${SESSION}:${win}" "$LAUNCHER" "$idx" 2>/dev/null; then
       : # respawned successfully
     else
       tmux kill-window -t "${SESSION}:${win}" 2>/dev/null || true
-      tmux new-window  -t "$SESSION" -n "$win" "$LAUNCHER" "${miner_args[@]}"
+      tmux new-window  -t "$SESSION" -n "$win" "$LAUNCHER" "$idx"
     fi
   fi
 }
@@ -73,6 +64,6 @@ for i in $(seq 0 $((NUM_MINERS-1))); do
 done
 
 echo
-echo "✅  ${NUM_MINERS} miners (${NUM_PUBLIC} public, $((NUM_MINERS-NUM_PUBLIC)) private) in tmux session '$SESSION'."
+echo "✅  ${NUM_MINERS} miners in tmux session '$SESSION'."
 echo "🔗  Attach with:   tmux attach -t $SESSION"
 echo "💡  Windows persist; rerun this script to revive any that died."
