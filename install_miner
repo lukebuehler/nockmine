@@ -100,8 +100,8 @@ cat <<EOF | sudo tee "${SERVICE_FILE}" > /dev/null
 Description=Nockchain Miner ${INDEX}
 After=network.target
 Wants=network-online.target
-StartLimitIntervalSec=2min
-StartLimitBurst=5
+StartLimitIntervalSec=3min
+StartLimitBurst=3
 
 [Service]
 Type=simple
@@ -114,8 +114,8 @@ Environment=MINIMAL_LOG_FORMAT=${MINIMAL_LOG_FORMAT}
 ExecStartPre=/bin/bash -c 'mkdir -p "${NODE_DIR}" && cd "${NODE_DIR}" && rm -rf .socket'
 ExecStart=${NOCKCHAIN_BIN} --mining-pubkey ${MINING_PUBKEY} --num-threads ${NUM_THREADS} --mine --bind ${BIND_ADDR}
 Restart=on-failure
-RestartSec=3s
-RuntimeMaxSec=2h
+RestartSec=60s
+RuntimeMaxSec=1h
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=${SERVICE_NAME}
@@ -150,9 +150,9 @@ cat <<EOF
   MINING_PUBKEY    = ${MINING_PUBKEY}
   NUM_THREADS      = ${NUM_THREADS}
   BIND_ADDR        = ${BIND_ADDR}
-  RESTART POLICY   = on-failure (3s delay)
-  RECYCLE INTERVAL = 4 hours
-  RETRY LIMIT      = 5 retries per 2 minutes
+  RESTART POLICY   = on-failure (60s delay)
+  RECYCLE INTERVAL = 1 hour
+  RETRY LIMIT      = 3 retries per 3 minutes
 ------------------------------------------------------------
 
 Service commands:
