@@ -151,7 +151,7 @@ cat <<EOF
   NUM_THREADS      = ${NUM_THREADS}
   BIND_ADDR        = ${BIND_ADDR}
   RESTART POLICY   = on-failure (60s delay)
-  RECYCLE INTERVAL = 1 hour
+  RECYCLE INTERVAL = 2 hour
   RETRY LIMIT      = 3 retries per 3 minutes
 ------------------------------------------------------------
 
