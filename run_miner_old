@@ -50,7 +50,7 @@ BTC_NODE_URL="https://bitcoin-rpc.publicnode.com"
 NODE_DIR="${REPO_ROOT}/miner-node-${INDEX}"
 mkdir -p "${NODE_DIR}"
 cd "${NODE_DIR}"
-rm -f nockchain.sock
+rm -rf .socket
 
 # ---------- 6. Build networking flags ------------------------
 PEER_FLAGS=()
@@ -66,10 +66,10 @@ if $PRIVATE; then
   PEER_FLAGS+=( --peer "/ip4/65.109.156.108/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/65.21.67.175/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/65.109.156.172/udp/3006/quic-v1" )
-  # PEER_FLAGS+=( --peer "/ip4/34.174.22.166/udp/3006/quic-v1" )
-  # PEER_FLAGS+=( --peer "/ip4/34.95.155.151/udp/30000/quic-v1" )
-  # PEER_FLAGS+=( --peer "/ip4/34.18.98.38/udp/30000/quic-v1" )
-  # PEER_FLAGS+=( --peer "/ip4/96.230.252.205/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.174.22.166/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.95.155.151/udp/30000/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.18.98.38/udp/30000/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/96.230.252.205/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/94.205.40.29/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/159.112.204.186/udp/3006/quic-v1" )
   PEER_FLAGS+=( --peer "/ip4/88.0.59.61/udp/3006/quic-v1" )
@@ -80,6 +80,21 @@ if $PRIVATE; then
 else
   # Public nodes bind to all interfaces
   BIND_ADDR="/ip4/0.0.0.0/udp/${PORT}/quic-v1"
+
+    # Add backup public peers
+  PEER_FLAGS+=( --peer "/ip4/95.216.102.60/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.108.123.225/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.109.156.108/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.21.67.175/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.109.156.172/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.174.22.166/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.95.155.151/udp/30000/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.18.98.38/udp/30000/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/96.230.252.205/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/94.205.40.29/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/159.112.204.186/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/88.0.59.61/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/217.14.223.78/udp/3006/quic-v1" )
 fi
 
 # ---------- 7. Banner ----------------------------------------
@@ -102,10 +117,10 @@ EOF
 # ---------- 8. Launch ----------------------------------------
 NOCKCHAIN_CMD=(
   nockchain
-  --npc-socket nockchain.sock
+  #--npc-socket nockchain.sock
   --mining-pubkey "${MINING_PUBKEY}"
-  --mine
-  --btc-node-url "${BTC_NODE_URL}"
+  # --mine
+  # --btc-node-url "${BTC_NODE_URL}"
 )
 
 # Add bind address only for public nodes

@@ -1,4 +1,4 @@
-man make install-hoonc
+make install-hoonc
 export PATH="$HOME/.cargo/bin:$PATH"
 
 make build
