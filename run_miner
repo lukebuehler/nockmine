@@ -147,9 +147,9 @@ NOCKCHAIN_CMD=(
 )
 
 # Add bind address only for public nodes
-if [[ -n "$BIND_ADDR" ]]; then
-  NOCKCHAIN_CMD+=(--bind "${BIND_ADDR}")
-fi
+# if [[ -n "$BIND_ADDR" ]]; then
+#   NOCKCHAIN_CMD+=(--bind "${BIND_ADDR}")
+# fi
 
 # Add peer flags if any
 if (( ${#PEER_FLAGS[@]} > 0 )); then
