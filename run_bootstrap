@@ -105,7 +105,7 @@ cat <<EOF
   MODE             = $([[ $PRIVATE == true ]] && echo "PRIVATE (follower)" || echo "PUBLIC (gateway)") 
   UDP PORT         = ${PORT}
   NODE_DIR         = ${NODE_DIR}
-  NPC SOCKET       = ${NODE_DIR}/nockchain.sock
+  NPC SOCKET       = ${NODE_DIR}/.socket
   MINING_PUBKEY    = ${MINING_PUBKEY}
   BTC_NODE_URL     = ${BTC_NODE_URL}
   BIND_ADDR        = ${BIND_ADDR:-none (follower mode)}
@@ -117,7 +117,7 @@ EOF
 # ---------- 8. Launch ----------------------------------------
 NOCKCHAIN_CMD=(
   nockchain
-  #--npc-socket nockchain.sock
+  #--npc-socket .socket
   --mining-pubkey "${MINING_PUBKEY}"
   # --mine
   # --btc-node-url "${BTC_NODE_URL}"

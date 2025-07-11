@@ -1,25 +1,45 @@
-#!/bin/bash
-source .env
-export RUST_LOG
-export MINIMAL_LOG_FORMAT
-export MINING_PUBKEY
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# run_miner.sh  [--private|-l|--public] [INDEX] [extra args…]
+#
+# --private / -l : LAN-only.
+#   • binds to 127.0.0.1
+#   • gathers ALL local miner peer-IDs and passes:
+#       --peer <addr>  (repeated)
+#       --no-default-peers
+#       --allowed-peers-path <file>
+# --public (default): binds 0.0.0.0 and uses default peers.
+# ------------------------------------------------------------
 
-# Parse index (default 0)
+set -euo pipefail
+
+# ---------- 0. Parse --private flag --------------------------
+PRIVATE=false
+case "${1:-}" in
+  --private|-l) PRIVATE=true; shift ;;
+  --public)     shift ;;                # explicit public
+esac
+
+# ---------- 1. Parse index (default 0) -----------------------
 if (( $# > 0 )) && [[ $1 =~ ^[0-9]+$ ]]; then
   INDEX="$1"; shift
 else
   INDEX="0"
 fi
+PORT=$((3006 + INDEX))
 
-# Locate repo root
+# ---------- 2. Locate repo root ------------------------------
 REPO_ROOT="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Working dir & socket
-NODE_DIR="${REPO_ROOT}/miner-node-${INDEX}"
-mkdir -p "${NODE_DIR}"
-cd "${NODE_DIR}"
-rm -f nockchain.sock
+# ---------- 3. Load .env -------------------------------------
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${REPO_ROOT}/.env"
+  set +a
+fi
 
+# ---------- 4. CPU thread count function --------------------
 get_cpu_count() {
     if [[ "$OSTYPE" == "darwin"* ]]; then
         # macOS
@@ -30,13 +50,116 @@ get_cpu_count() {
     fi
 }
 
-# Get total CPU hyperthreads
-total_threads=$(get_cpu_count)
+# ---------- 5. Defaults --------------------------------------
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
+export RUST_LOG="${RUST_LOG:-info,nockchain=info,nockchain::nc=off,libp2p=warn,libp2p_quic=warn}"
+export MINIMAL_LOG_FORMAT="${MINIMAL_LOG_FORMAT:-true}"
+export MINING_PUBKEY="${MINING_PUBKEY:-3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR}"
+BTC_NODE_URL="https://bitcoin-rpc.publicnode.com"
 
-# Subtract 4
-num_threads=$((total_threads * 2 - 4))
+# Calculate reasonable thread count (allow override via NUM_THREADS env var)
+if [[ -z "${NUM_THREADS:-}" ]]; then
+    total_threads=$(get_cpu_count)
+    NUM_THREADS=$((total_threads * 2 - 4))
+    # Ensure we have at least 1 thread
+    if (( NUM_THREADS < 1 )); then
+        NUM_THREADS=1
+    fi
+fi
 
-echo "Mining pubkey: ${MINING_PUBKEY}"
-echo "Starting nockchain miner with $num_threads mining threads:"
+# ---------- 6. Working dir & socket --------------------------
+NODE_DIR="${REPO_ROOT}/miner-node-${INDEX}"
+mkdir -p "${NODE_DIR}"
+cd "${NODE_DIR}"
+rm -rf .socket
 
-nockchain --mining-pubkey ${MINING_PUBKEY} --mine --num-threads $num_threads
+# ---------- 7. Build networking flags ------------------------
+PEER_FLAGS=()
+if $PRIVATE; then
+  # For private/follower nodes:
+  # - Don't bind to the network (no --bind parameter)
+  # - Connect to local gateway node(s)
+  PEER_FLAGS+=( --peer "/ip4/127.0.0.1/udp/3006/quic-v1" )
+  
+  # Add backup public peers
+  PEER_FLAGS+=( --peer "/ip4/95.216.102.60/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.108.123.225/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.109.156.108/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.21.67.175/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/65.109.156.172/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.174.22.166/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.95.155.151/udp/30000/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/34.18.98.38/udp/30000/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/96.230.252.205/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/94.205.40.29/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/159.112.204.186/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/88.0.59.61/udp/3006/quic-v1" )
+  PEER_FLAGS+=( --peer "/ip4/217.14.223.78/udp/3006/quic-v1" )
+  
+  #PEER_FLAGS+=( --no-default-peers )
+  BIND_ADDR=""  # No binding for private nodes
+else
+  # Public nodes bind to all interfaces
+  BIND_ADDR="/ip4/0.0.0.0/udp/${PORT}/quic-v1"
+
+    # Add backup public peers
+  # PEER_FLAGS+=( --peer "/ip4/95.216.102.60/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/65.108.123.225/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/65.109.156.108/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/65.21.67.175/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/65.109.156.172/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/34.174.22.166/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/34.95.155.151/udp/30000/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/34.18.98.38/udp/30000/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/96.230.252.205/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/94.205.40.29/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/159.112.204.186/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/88.0.59.61/udp/3006/quic-v1" )
+  # PEER_FLAGS+=( --peer "/ip4/217.14.223.78/udp/3006/quic-v1" )
+fi
+
+# ---------- 8. Banner ----------------------------------------
+cat <<EOF
+------------------------------------------------------------
+[run_miner] CONFIGURATION
+  INDEX            = ${INDEX}
+  MODE             = $([[ $PRIVATE == true ]] && echo "PRIVATE (follower)" || echo "PUBLIC (gateway)") 
+  UDP PORT         = ${PORT}
+  NODE_DIR         = ${NODE_DIR}
+  NPC SOCKET       = ${NODE_DIR}/.socket
+  MINING_PUBKEY    = ${MINING_PUBKEY}
+  NUM_THREADS      = ${NUM_THREADS}
+  BTC_NODE_URL     = ${BTC_NODE_URL}
+  BIND_ADDR        = ${BIND_ADDR:-none (follower mode)}
+  PEER_FLAGS       = ${PEER_FLAGS[*]:-(default peers)}
+  EXTRA ARGS       = $*
+------------------------------------------------------------
+EOF
+
+# ---------- 9. Launch ----------------------------------------
+NOCKCHAIN_CMD=(
+  nockchain
+  #--npc-socket .socket #is default now
+  --mining-pubkey "${MINING_PUBKEY}"
+  #--num-threads "${NUM_THREADS}"
+  # --mine
+  # --btc-node-url "${BTC_NODE_URL}"
+)
+
+# Add bind address only for public nodes
+if [[ -n "$BIND_ADDR" ]]; then
+  NOCKCHAIN_CMD+=(--bind "${BIND_ADDR}")
+fi
+
+# Add peer flags if any
+if (( ${#PEER_FLAGS[@]} > 0 )); then
+  NOCKCHAIN_CMD+=("${PEER_FLAGS[@]}")
+fi
+
+# Add any extra arguments
+if (( $# > 0 )); then
+  NOCKCHAIN_CMD+=("$@")
+fi
+
+exec "${NOCKCHAIN_CMD[@]}"
+
