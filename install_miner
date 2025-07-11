@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# install_miner [INDEX] [--remove]
+#
+# Creates a systemd service for the nockchain miner.
+# The service will restart every 4 hours automatically.
+# Only supports public profile (gateway mode).
+#
+# INDEX: miner index (default 0)
+# --remove: remove the service instead of installing
+# ------------------------------------------------------------
+
+set -euo pipefail
+
+# ---------- 0. Parse arguments ------------------------------
+REMOVE=false
+case "${1:-}" in
+  --remove) REMOVE=true; shift ;;
+esac
+
+# Parse index (default 0)
+if (( $# > 0 )) && [[ $1 =~ ^[0-9]+$ ]]; then
+  INDEX="$1"; shift
+else
+  INDEX="0"
+fi
+
+PORT=$((3006 + INDEX))
+SERVICE_NAME="nockchain-miner-${INDEX}"
+
+# ---------- 1. Locate repo root ------------------------------
+REPO_ROOT="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---------- 2. Load .env -------------------------------------
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${REPO_ROOT}/.env"
+  set +a
+fi
+
+# ---------- 3. CPU thread count function --------------------
+get_cpu_count() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        sysctl -n hw.logicalcpu
+    else
+        # Linux (Ubuntu, etc.)
+        nproc
+    fi
+}
+
+# ---------- 4. Defaults --------------------------------------
+export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
+export RUST_LOG="${RUST_LOG:-info,nockchain=info,nockchain::nc=off,libp2p=warn,libp2p_quic=warn}"
+export MINIMAL_LOG_FORMAT="${MINIMAL_LOG_FORMAT:-true}"
+export MINING_PUBKEY="${MINING_PUBKEY:-3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR}"
+
+# Calculate reasonable thread count (allow override via NUM_THREADS env var)
+if [[ -z "${NUM_THREADS:-}" ]]; then
+    total_threads=$(get_cpu_count)
+    NUM_THREADS=$((total_threads * 2 - 4))
+    # Ensure we have at least 1 thread
+    if (( NUM_THREADS < 1 )); then
+        NUM_THREADS=1
+    fi
+fi
+
+# ---------- 5. Working dir & binary path -------------------
+NODE_DIR="${REPO_ROOT}/miner-node-${INDEX}"
+BIND_ADDR="/ip4/0.0.0.0/udp/${PORT}/quic-v1"
+NOCKCHAIN_BIN="${NOCKCHAIN_BIN:-nockchain}"
+
+# ---------- 6. Remove service if requested -------------------
+if $REMOVE; then
+  echo "Removing service ${SERVICE_NAME}..."
+  
+  # Stop and disable the service
+  sudo systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
+  sudo systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
+  
+  # Remove service file
+  sudo rm -f "/etc/systemd/system/${SERVICE_NAME}.service"
+  
+  # Reload systemd
+  sudo systemctl daemon-reload
+  
+  echo "Service ${SERVICE_NAME} removed successfully."
+  exit 0
+fi
+
+# ---------- 7. Create working directory ----------------------
+mkdir -p "${NODE_DIR}"
+
+# ---------- 8. Create systemd service file ------------------
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+
+cat <<EOF | sudo tee "${SERVICE_FILE}" > /dev/null
+[Unit]
+Description=Nockchain Miner ${INDEX}
+After=network.target
+Wants=network-online.target
+StartLimitIntervalSec=2min
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User=$(whoami)
+Group=$(id -gn)
+WorkingDirectory=${NODE_DIR}
+Environment=RUST_BACKTRACE=${RUST_BACKTRACE}
+Environment=RUST_LOG=${RUST_LOG}
+Environment=MINIMAL_LOG_FORMAT=${MINIMAL_LOG_FORMAT}
+ExecStartPre=/bin/bash -c 'mkdir -p "${NODE_DIR}" && cd "${NODE_DIR}" && rm -rf .socket'
+ExecStart=${NOCKCHAIN_BIN} --mining-pubkey ${MINING_PUBKEY} --num-threads ${NUM_THREADS} --mine --bind ${BIND_ADDR}
+Restart=on-failure
+RestartSec=3s
+RuntimeMaxSec=12h
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=${SERVICE_NAME}
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=32768
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# ---------- 9. Install and start service -------------------
+echo "Installing service ${SERVICE_NAME}..."
+
+# Reload systemd
+sudo systemctl daemon-reload
+
+# Enable and start the service
+sudo systemctl enable "${SERVICE_NAME}"
+sudo systemctl start "${SERVICE_NAME}"
+
+# ---------- 12. Show status and information -----------------
+cat <<EOF
+------------------------------------------------------------
+[install_miner] SERVICE INSTALLED
+  SERVICE NAME     = ${SERVICE_NAME}
+  INDEX            = ${INDEX}
+  UDP PORT         = ${PORT}
+  NODE_DIR         = ${NODE_DIR}
+  NOCKCHAIN_BIN    = ${NOCKCHAIN_BIN}
+  MINING_PUBKEY    = ${MINING_PUBKEY}
+  NUM_THREADS      = ${NUM_THREADS}
+  BIND_ADDR        = ${BIND_ADDR}
+  RESTART POLICY   = on-failure (3s delay)
+  RECYCLE INTERVAL = 12 hours
+  RETRY LIMIT      = 5 retries per 2 minutes
+------------------------------------------------------------
+
+Service commands:
+  sudo systemctl status ${SERVICE_NAME}
+  sudo systemctl stop ${SERVICE_NAME}
+  sudo systemctl start ${SERVICE_NAME}
+  sudo systemctl restart ${SERVICE_NAME}
+  sudo journalctl -u ${SERVICE_NAME} -f
+
+To remove the service:
+  ./install_miner ${INDEX} --remove
+
+EOF
+
+# Show current status
+echo "Current service status:"
+sudo systemctl status "${SERVICE_NAME}" --no-pager -l

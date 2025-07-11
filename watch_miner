@@ -1,0 +1,170 @@
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# watch_miner [INDEX] [OPTIONS]
+#
+# Watches the logs of a nockchain miner service.
+# 
+# INDEX: miner index (default 0)
+# OPTIONS:
+#   -f, --follow     Follow log output (default)
+#   -n, --lines NUM  Show last NUM lines (default 50)
+#   -s, --since TIME Show logs since TIME (e.g., "2 hours ago", "today")
+#   -u, --until TIME Show logs until TIME
+#   -h, --help       Show this help
+#   --no-follow      Don't follow, just show and exit
+#   --raw            Show raw journalctl output without filtering
+# ------------------------------------------------------------
+
+set -euo pipefail
+
+# ---------- 0. Default values --------------------------------
+INDEX="0"
+FOLLOW=true
+LINES="50"
+SINCE=""
+UNTIL=""
+RAW=false
+
+# ---------- 1. Parse arguments ------------------------------
+while (( $# > 0 )); do
+  case "$1" in
+    -h|--help)
+      cat <<EOF
+Usage: $0 [INDEX] [OPTIONS]
+
+Watches the logs of a nockchain miner service.
+
+Arguments:
+  INDEX               Miner index (default 0)
+
+Options:
+  -f, --follow        Follow log output (default)
+  --no-follow         Don't follow, just show and exit
+  -n, --lines NUM     Show last NUM lines (default 50)
+  -s, --since TIME    Show logs since TIME (e.g., "2 hours ago", "today")
+  -u, --until TIME    Show logs until TIME
+  --raw               Show raw journalctl output without filtering
+  -h, --help          Show this help
+
+Examples:
+  $0                  # Watch miner 0 logs
+  $0 1                # Watch miner 1 logs
+  $0 0 -n 100         # Show last 100 lines of miner 0
+  $0 --since "1 hour ago" --no-follow  # Show last hour, don't follow
+  $0 --raw            # Show raw journalctl output
+
+EOF
+      exit 0
+      ;;
+    -f|--follow)
+      FOLLOW=true
+      shift
+      ;;
+    --no-follow)
+      FOLLOW=false
+      shift
+      ;;
+    -n|--lines)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --lines requires a number" >&2
+        exit 1
+      fi
+      LINES="$2"
+      shift 2
+      ;;
+    -s|--since)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --since requires a time specification" >&2
+        exit 1
+      fi
+      SINCE="$2"
+      shift 2
+      ;;
+    -u|--until)
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --until requires a time specification" >&2
+        exit 1
+      fi
+      UNTIL="$2"
+      shift 2
+      ;;
+    --raw)
+      RAW=true
+      shift
+      ;;
+    -*)
+      echo "Error: Unknown option $1" >&2
+      exit 1
+      ;;
+    *)
+      # Assume it's the index if it's a number
+      if [[ $1 =~ ^[0-9]+$ ]]; then
+        INDEX="$1"
+        shift
+      else
+        echo "Error: Unknown argument $1" >&2
+        exit 1
+      fi
+      ;;
+  esac
+done
+
+# ---------- 2. Build service name ---------------------------
+SERVICE_NAME="nockchain-miner-${INDEX}"
+
+# ---------- 3. Check if service exists ----------------------
+if ! systemctl list-unit-files "${SERVICE_NAME}.service" &>/dev/null; then
+  echo "Error: Service ${SERVICE_NAME}.service does not exist." >&2
+  echo "Install it first with: ./install_miner ${INDEX}" >&2
+  exit 1
+fi
+
+# ---------- 4. Build journalctl command ---------------------
+JOURNALCTL_CMD=(journalctl -u "${SERVICE_NAME}")
+
+# Add follow flag
+if $FOLLOW; then
+  JOURNALCTL_CMD+=(--follow)
+fi
+
+# Add lines limit
+if [[ -n "$LINES" ]]; then
+  JOURNALCTL_CMD+=(--lines "$LINES")
+fi
+
+# Add since filter
+if [[ -n "$SINCE" ]]; then
+  JOURNALCTL_CMD+=(--since "$SINCE")
+fi
+
+# Add until filter
+if [[ -n "$UNTIL" ]]; then
+  JOURNALCTL_CMD+=(--until "$UNTIL")
+fi
+
+# Add output format for better readability (unless raw)
+if ! $RAW; then
+  JOURNALCTL_CMD+=(--output short-precise)
+fi
+
+# ---------- 5. Show banner ----------------------------------
+if ! $RAW; then
+  cat <<EOF
+------------------------------------------------------------
+[watch_miner] WATCHING LOGS
+  SERVICE NAME     = ${SERVICE_NAME}
+  INDEX            = ${INDEX}
+  FOLLOW           = ${FOLLOW}
+  LINES            = ${LINES}
+  SINCE            = ${SINCE:-none}
+  UNTIL            = ${UNTIL:-none}
+  RAW OUTPUT       = ${RAW}
+------------------------------------------------------------
+
+Press Ctrl+C to stop watching.
+
+EOF
+fi
+
+# ---------- 6. Execute journalctl command -------------------
+exec "${JOURNALCTL_CMD[@]}"
