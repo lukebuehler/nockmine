@@ -20,3 +20,5 @@ target/
 
 # Ignore any miner-node* files or folders
 miner-node*/
+
+.env
