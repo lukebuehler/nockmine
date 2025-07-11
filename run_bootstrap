@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ------------------------------------------------------------
-# run_miner.sh  [--private|-l|--public] [INDEX] [extra args…]
+# run_bootstrap.sh  [--private|-l|--public] [--state-jam FILE] [INDEX] [extra args…]
 #
 # --private / -l : LAN-only.
 #   • binds to 127.0.0.1
@@ -9,16 +9,30 @@
 #       --no-default-peers
 #       --allowed-peers-path <file>
 # --public (default): binds 0.0.0.0 and uses default peers.
+# --state-jam FILE: Use specified state jam file for bootstrap.
 # ------------------------------------------------------------
 
 set -euo pipefail
 
-# ---------- 0. Parse --private flag --------------------------
+# ---------- 0. Parse arguments -------------------------------
 PRIVATE=false
-case "${1:-}" in
-  --private|-l) PRIVATE=true; shift ;;
-  --public)     shift ;;                # explicit public
-esac
+STATE_JAM=""
+
+while [[ $# -gt 0 ]]; do
+  case "${1:-}" in
+    --private|-l) PRIVATE=true; shift ;;
+    --public)     shift ;;                # explicit public
+    --state-jam)  
+      if [[ -z "${2:-}" ]]; then
+        echo "Error: --state-jam requires a file path argument" >&2
+        exit 1
+      fi
+      STATE_JAM="$2"
+      shift 2 ;;
+    *)
+      break ;;  # Stop parsing, let the rest be handled by index parsing
+  esac
+done
 
 # ---------- 1. Parse index (default 0) -----------------------
 if (( $# > 0 )) && [[ $1 =~ ^[0-9]+$ ]]; then
@@ -37,6 +51,15 @@ if [[ -f "${REPO_ROOT}/.env" ]]; then
   # shellcheck disable=SC1090
   source "${REPO_ROOT}/.env"
   set +a
+fi
+
+# ---------- 3.5. Validate state-jam file ---------------------
+if [[ -n "$STATE_JAM" ]]; then
+  if [[ ! -f "$STATE_JAM" ]]; then
+    echo "Error: State jam file does not exist: $STATE_JAM" >&2
+    exit 1
+  fi
+  echo "Using state jam file: $STATE_JAM"
 fi
 
 # ---------- 4. Defaults --------------------------------------
@@ -107,6 +130,7 @@ cat <<EOF
   NODE_DIR         = ${NODE_DIR}
   NPC SOCKET       = ${NODE_DIR}/.socket
   MINING_PUBKEY    = ${MINING_PUBKEY}
+  STATE_JAM        = ${STATE_JAM:-none}
   BTC_NODE_URL     = ${BTC_NODE_URL}
   BIND_ADDR        = ${BIND_ADDR:-none (follower mode)}
   PEER_FLAGS       = ${PEER_FLAGS[*]:-(default peers)}
@@ -126,6 +150,11 @@ NOCKCHAIN_CMD=(
 # Add bind address only for public nodes
 if [[ -n "$BIND_ADDR" ]]; then
   NOCKCHAIN_CMD+=(--bind "${BIND_ADDR}")
+fi
+
+# Add state jam file if specified
+if [[ -n "$STATE_JAM" ]]; then
+  NOCKCHAIN_CMD+=(--state-jam "$STATE_JAM")
 fi
 
 # Add peer flags if any
