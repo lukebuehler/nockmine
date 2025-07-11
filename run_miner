@@ -141,8 +141,8 @@ NOCKCHAIN_CMD=(
   nockchain
   #--npc-socket .socket #is default now
   --mining-pubkey "${MINING_PUBKEY}"
-  #--num-threads "${NUM_THREADS}"
-  # --mine
+  --num-threads "${NUM_THREADS}"
+  --mine
   # --btc-node-url "${BTC_NODE_URL}"
 )
 
