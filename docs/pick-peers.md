@@ -3,6 +3,9 @@
 If too much traffic?
 
 
+Now just do
+`--peer /dnsaddr/nockchain-backbone.zorp.io` if peers need to be picked
+
 Saw this on TG:
 
 ```
