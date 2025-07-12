@@ -56,6 +56,7 @@ export RUST_LOG="${RUST_LOG:-info,nockchain=info,nockchain::nc=off,libp2p=warn,l
 export MINIMAL_LOG_FORMAT="${MINIMAL_LOG_FORMAT:-true}"
 export MINING_PUBKEY="${MINING_PUBKEY:-3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR}"
 export USE_BIND="${USE_BIND:-false}"
+export PEERS="${PEERS:-}"
 
 # Calculate reasonable thread count (allow override via NUM_THREADS env var)
 if [[ -z "${NUM_THREADS:-}" ]]; then
@@ -99,12 +100,24 @@ NOCKCHAIN_CMD=(
   --mining-pubkey "${MINING_PUBKEY}"
   --num-threads "${NUM_THREADS}"
   --mine
-  --peer /dnsaddr/nockchain-backbone.zorp.io
 )
 
 # Add bind address if USE_BIND is true
 if [[ "${USE_BIND}" == "true" ]]; then
   NOCKCHAIN_CMD+=(--bind "${BIND_ADDR}")
+fi
+
+# Add peers if PEERS is set and not empty
+if [[ -n "${PEERS:-}" ]]; then
+  # Split comma-separated peers and add each with --peer flag
+  IFS=',' read -ra PEER_ARRAY <<< "${PEERS}"
+  for peer in "${PEER_ARRAY[@]}"; do
+    # Trim whitespace from peer
+    peer=$(echo "${peer}" | xargs)
+    if [[ -n "${peer}" ]]; then
+      NOCKCHAIN_CMD+=(--peer "${peer}")
+    fi
+  done
 fi
 
 # Convert array to space-separated string for systemd
@@ -169,6 +182,7 @@ cat <<EOF
   NUM_THREADS      = ${NUM_THREADS}
   USE_BIND         = ${USE_BIND}
   BIND_ADDR        = ${BIND_ADDR}
+  PEERS            = ${PEERS:-none}
   EXEC_COMMAND     = ${EXEC_COMMAND}
   RESTART POLICY   = on-failure (60s delay)
   RECYCLE INTERVAL = 2 hour
