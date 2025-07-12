@@ -55,6 +55,7 @@ export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
 export RUST_LOG="${RUST_LOG:-info,nockchain=info,nockchain::nc=off,libp2p=warn,libp2p_quic=warn}"
 export MINIMAL_LOG_FORMAT="${MINIMAL_LOG_FORMAT:-true}"
 export MINING_PUBKEY="${MINING_PUBKEY:-3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR}"
+export USE_BIND="${USE_BIND:-false}"
 
 # Calculate reasonable thread count (allow override via NUM_THREADS env var)
 if [[ -z "${NUM_THREADS:-}" ]]; then
@@ -92,7 +93,24 @@ fi
 # ---------- 7. Create working directory ----------------------
 mkdir -p "${NODE_DIR}"
 
-# ---------- 8. Create systemd service file ------------------
+# ---------- 8. Construct nockchain command ------------------
+NOCKCHAIN_CMD=(
+  "${NOCKCHAIN_BIN}"
+  --mining-pubkey "${MINING_PUBKEY}"
+  --num-threads "${NUM_THREADS}"
+  --mine
+  --peer /dnsaddr/nockchain-backbone.zorp.io
+)
+
+# Add bind address if USE_BIND is true
+if [[ "${USE_BIND}" == "true" ]]; then
+  NOCKCHAIN_CMD+=(--bind "${BIND_ADDR}")
+fi
+
+# Convert array to space-separated string for systemd
+EXEC_COMMAND="${NOCKCHAIN_CMD[*]}"
+
+# ---------- 9. Create systemd service file ------------------
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 cat <<EOF | sudo tee "${SERVICE_FILE}" > /dev/null
@@ -112,7 +130,7 @@ Environment=RUST_BACKTRACE=${RUST_BACKTRACE}
 Environment=RUST_LOG=${RUST_LOG}
 Environment=MINIMAL_LOG_FORMAT=${MINIMAL_LOG_FORMAT}
 ExecStartPre=/bin/bash -c 'mkdir -p "${NODE_DIR}" && cd "${NODE_DIR}" && rm -rf .socket'
-ExecStart=${NOCKCHAIN_BIN} --mining-pubkey ${MINING_PUBKEY} --num-threads ${NUM_THREADS} --mine --bind ${BIND_ADDR} --peer /dnsaddr/nockchain-backbone.zorp.io
+ExecStart=${EXEC_COMMAND}
 Restart=on-failure
 RestartSec=60s
 RuntimeMaxSec=2h
@@ -128,7 +146,7 @@ LimitNPROC=32768
 WantedBy=multi-user.target
 EOF
 
-# ---------- 9. Install and start service -------------------
+# ---------- 10. Install and start service -------------------
 echo "Installing service ${SERVICE_NAME}..."
 
 # Reload systemd
@@ -138,7 +156,7 @@ sudo systemctl daemon-reload
 sudo systemctl enable "${SERVICE_NAME}"
 sudo systemctl start "${SERVICE_NAME}"
 
-# ---------- 12. Show status and information -----------------
+# ---------- 11. Show status and information -----------------
 cat <<EOF
 ------------------------------------------------------------
 [install_miner] SERVICE INSTALLED
@@ -149,7 +167,9 @@ cat <<EOF
   NOCKCHAIN_BIN    = ${NOCKCHAIN_BIN}
   MINING_PUBKEY    = ${MINING_PUBKEY}
   NUM_THREADS      = ${NUM_THREADS}
+  USE_BIND         = ${USE_BIND}
   BIND_ADDR        = ${BIND_ADDR}
+  EXEC_COMMAND     = ${EXEC_COMMAND}
   RESTART POLICY   = on-failure (60s delay)
   RECYCLE INTERVAL = 2 hour
   RETRY LIMIT      = 3 retries per 3 minutes
