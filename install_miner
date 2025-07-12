@@ -112,7 +112,7 @@ Environment=RUST_BACKTRACE=${RUST_BACKTRACE}
 Environment=RUST_LOG=${RUST_LOG}
 Environment=MINIMAL_LOG_FORMAT=${MINIMAL_LOG_FORMAT}
 ExecStartPre=/bin/bash -c 'mkdir -p "${NODE_DIR}" && cd "${NODE_DIR}" && rm -rf .socket'
-ExecStart=${NOCKCHAIN_BIN} --mining-pubkey ${MINING_PUBKEY} --num-threads ${NUM_THREADS} --mine --peer /dnsaddr/nockchain-backbone.zorp.io
+ExecStart=${NOCKCHAIN_BIN} --mining-pubkey ${MINING_PUBKEY} --num-threads ${NUM_THREADS} --mine --bind ${BIND_ADDR} --peer /dnsaddr/nockchain-backbone.zorp.io
 Restart=on-failure
 RestartSec=60s
 RuntimeMaxSec=2h

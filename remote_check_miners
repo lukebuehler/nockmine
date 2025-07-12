@@ -222,7 +222,7 @@ for hostname in "${MINERS[@]}"; do
       ((active_miners++))
       
       # Get block height for summary
-      height_match=$(ssh "${hostname}" "journalctl -u nockchain-miner-0 -n 2000 --no-pager | grep -E 'added to validated blocks at [0-9]+\\.[0-9]+ with proof version' | tail -1 | sed -n 's/.*added to validated blocks at \\([0-9]\\+\\.[0-9]\\+\\) with proof version.*/\\1/p'" 2>/dev/null || echo "")
+      height_match=$(ssh "${hostname}" "journalctl -u nockchain-miner-0 -n 4000 --no-pager | grep -E 'added to validated blocks at [0-9]+\\.[0-9]+ with proof version' | tail -1 | sed -n 's/.*added to validated blocks at \\([0-9]\\+\\.[0-9]\\+\\) with proof version.*/\\1/p'" 2>/dev/null || echo "")
       
       if [[ -n "${height_match}" ]]; then
         block_height=$(echo "${height_match}" | tr -d '.')
