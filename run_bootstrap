@@ -102,6 +102,7 @@ if $PRIVATE; then
   BIND_ADDR=""  # No binding for private nodes
 else
   # Public nodes bind to all interfaces
+  BIND_ADDR=""  # No binding anymore
   #BIND_ADDR="/ip4/0.0.0.0/udp/${PORT}/quic-v1"
 
   # Default peer
