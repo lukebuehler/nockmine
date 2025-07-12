@@ -57,6 +57,7 @@ export MINIMAL_LOG_FORMAT="${MINIMAL_LOG_FORMAT:-true}"
 export MINING_PUBKEY="${MINING_PUBKEY:-3Zp2m2Lt4uWx2PKuCSuQrA7W5aAgaHLeWGsnd7eYS11PMV8Uorpm5t6TAHLVjbHc9nJgs8QcJpRaBLMZDPDkgVxQ9qT48AAVbaNk4bpeTSPVFjmEQ7HkaFgvSrnHUxqsUbMR}"
 export USE_BIND="${USE_BIND:-false}"
 export PEERS="${PEERS:-}"
+export RUNTIME_MAX_SEC="${RUNTIME_MAX_SEC:-2h}"
 
 # Calculate reasonable thread count (allow override via NUM_THREADS env var)
 if [[ -z "${NUM_THREADS:-}" ]]; then
@@ -146,7 +147,7 @@ ExecStartPre=/bin/bash -c 'mkdir -p "${NODE_DIR}" && cd "${NODE_DIR}" && rm -rf 
 ExecStart=${EXEC_COMMAND}
 Restart=on-failure
 RestartSec=60s
-RuntimeMaxSec=2h
+RuntimeMaxSec=${RUNTIME_MAX_SEC}
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=${SERVICE_NAME}
@@ -183,9 +184,10 @@ cat <<EOF
   USE_BIND         = ${USE_BIND}
   BIND_ADDR        = ${BIND_ADDR}
   PEERS            = ${PEERS:-none}
+  RUNTIME_MAX_SEC  = ${RUNTIME_MAX_SEC}
   EXEC_COMMAND     = ${EXEC_COMMAND}
   RESTART POLICY   = on-failure (60s delay)
-  RECYCLE INTERVAL = 2 hour
+  RECYCLE INTERVAL = ${RUNTIME_MAX_SEC}
   RETRY LIMIT      = 3 retries per 3 minutes
 ------------------------------------------------------------
 

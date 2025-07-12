@@ -22,3 +22,5 @@ target/
 miner-node*/
 
 .env
+
+*.jam
