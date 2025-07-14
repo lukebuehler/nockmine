@@ -1,0 +1,87 @@
+---
+- hosts: miners
+  become: true
+  vars:
+    repo_dir: "{{ ansible_env.HOME }}/nockchain"
+    state_jam_local_path: "./state.jam"
+    state_jam_remote_path: "{{ ansible_env.HOME }}/state.jam"
+    worker_threads: "{{ [ (ansible_processor_vcpus | default(1)) * 2 - 4, 1 ] | max }}"
+  tasks:
+    - name: Install required packages
+      apt:
+        update_cache: yes
+        name:
+          - make
+          - build-essential
+          - clang
+          - llvm-dev
+          - libclang-dev
+        state: present
+      tags: setup
+
+    - name: Install Rust toolchain
+      shell: curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+      args:
+        creates: "{{ ansible_env.HOME }}/.cargo/bin/rustc"
+        executable: /bin/bash
+      tags: setup
+
+    - name: Ensure vm.overcommit_memory=1
+      sysctl:
+        name: vm.overcommit_memory
+        value: '1'
+        state: present
+      tags: setup
+
+    - name: Clone nockchain repository
+      git:
+        repo: https://github.com/zorp-corp/nockchain.git
+        dest: "{{ repo_dir }}"
+        update: yes
+      tags: setup
+
+    - name: Deploy environment file
+      template:
+        src: env.j2
+        dest: "{{ repo_dir }}/.env"
+        mode: '0644'
+      tags: setup
+
+    - name: Build nockchain (install-hoonc)
+      make:
+        chdir: "{{ repo_dir }}"
+        target: install-hoonc
+      tags: setup
+
+    - name: Build nockchain
+      make:
+        chdir: "{{ repo_dir }}"
+        target: build
+      tags: setup
+
+    - name: Install nockchain binary
+      make:
+        chdir: "{{ repo_dir }}"
+        target: install-nockchain
+      tags: setup
+
+    - name: Upload state jam file
+      copy:
+        src: "{{ state_jam_local_path }}"
+        dest: "{{ state_jam_remote_path }}"
+        mode: '0644'
+      tags: bootstrap
+
+    - name: Run bootstrap (long running, may need manual termination)
+      shell: ./run_bootstrap --state-jam {{ state_jam_remote_path }}
+      args:
+        chdir: "{{ repo_dir }}"
+      async: 0
+      poll: 0
+      tags: bootstrap
+
+    - name: Install miner systemd service
+      shell: ./install_miner
+      args:
+        chdir: "{{ repo_dir }}"
+      tags: service
