@@ -62,7 +62,7 @@ export RUNTIME_MAX_SEC="${RUNTIME_MAX_SEC:-2h}"
 # Calculate reasonable thread count (allow override via NUM_THREADS env var)
 if [[ -z "${NUM_THREADS:-}" ]]; then
     total_threads=$(get_cpu_count)
-    NUM_THREADS=$((total_threads * 2 - 4))
+    NUM_THREADS=$((total_threads - 2))
     # Ensure we have at least 1 thread
     if (( NUM_THREADS < 1 )); then
         NUM_THREADS=1

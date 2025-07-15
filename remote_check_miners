@@ -108,14 +108,14 @@ check_miner() {
   if [[ "${service_status}" == "active" ]]; then
     # Get the latest block height from logs
     local height_match
-    height_match=$(ssh "${hostname}" "journalctl -u ${service_name} -n 2000 --no-pager | grep -E 'added to validated blocks at [0-9]+\\.[0-9]+ with proof version' | tail -1 | sed -n 's/.*added to validated blocks at \\([0-9]\\+\\.[0-9]\\+\\) with proof version.*/\\1/p'" 2>/dev/null || echo "")
+    height_match=$(ssh "${hostname}" "journalctl -u ${service_name} -n 2000 --no-pager | grep -E 'added to validated blocks at [0-9]+ with proof version' | tail -1 | sed -n 's/.*added to validated blocks at \\([0-9]\\+\\) with proof version.*/\\1/p'" 2>/dev/null || echo "")
     
     if [[ -n "${height_match}" ]]; then
-      # Remove the dot (thousand separator) to get the actual block height
-      block_height=$(echo "${height_match}" | tr -d '.')
+      # Block height is now without dot separator
+      block_height="${height_match}"
       
       # Get the timestamp of this log entry
-      last_block_time=$(ssh "${hostname}" "journalctl -u ${service_name} -n 2000 --no-pager | grep -E 'added to validated blocks at [0-9]+\\.[0-9]+ with proof version' | tail -1 | awk '{print \$1, \$2, \$3}'" 2>/dev/null || echo "")
+      last_block_time=$(ssh "${hostname}" "journalctl -u ${service_name} -n 2000 --no-pager | grep -E 'added to validated blocks at [0-9]+ with proof version' | tail -1 | awk '{print \$1, \$2, \$3}'" 2>/dev/null || echo "")
     fi
   fi
   
@@ -222,10 +222,10 @@ for hostname in "${MINERS[@]}"; do
       ((active_miners++))
       
       # Get block height for summary
-      height_match=$(ssh "${hostname}" "journalctl -u nockchain-miner-0 -n 4000 --no-pager | grep -E 'added to validated blocks at [0-9]+\\.[0-9]+ with proof version' | tail -1 | sed -n 's/.*added to validated blocks at \\([0-9]\\+\\.[0-9]\\+\\) with proof version.*/\\1/p'" 2>/dev/null || echo "")
+      height_match=$(ssh "${hostname}" "journalctl -u nockchain-miner-0 -n 4000 --no-pager | grep -E 'added to validated blocks at [0-9]+ with proof version' | tail -1 | sed -n 's/.*added to validated blocks at \\([0-9]\\+\\) with proof version.*/\\1/p'" 2>/dev/null || echo "")
       
       if [[ -n "${height_match}" ]]; then
-        block_height=$(echo "${height_match}" | tr -d '.')
+        block_height="${height_match}"
         block_heights+=("${block_height}")
         block_hosts+=("${hostname}")
       fi
