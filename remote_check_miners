@@ -109,13 +109,17 @@ check_miner() {
     fi
     
     # Get restart count in last 24 hours
-    restarts=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "journalctl -u ${service_name} --since '24 hours ago' --no-pager | grep -c 'Started' 2>/dev/null || echo '0'")
+    restarts=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "journalctl -u ${service_name} --since '120 minutes ago' --no-pager | grep -c 'Started' 2>/dev/null || echo '0'")
     
     # Get mining attempts per minute (based on last 60 minutes)
     local mining_attempts_60min=""
     mining_attempts_60min=$(timeout 20 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "journalctl -u ${service_name} --since '60 minutes ago' --no-pager | grep -c \"didn't find block, starting new attempt\" 2>/dev/null || echo '0'")
+    
+    # Ensure we only get the first line and strip whitespace
+    mining_attempts_60min=$(echo "${mining_attempts_60min}" | head -n1 | xargs)
+    
     local mining_attempts_per_min="N/A"
-    if [[ "${mining_attempts_60min}" != "0" && "${mining_attempts_60min}" -gt 0 ]]; then
+    if [[ "${mining_attempts_60min}" =~ ^[0-9]+$ ]] && [[ "${mining_attempts_60min}" -gt 0 ]]; then
       mining_attempts_per_min=$(echo "scale=1; ${mining_attempts_60min} / 60" | bc 2>/dev/null || echo "N/A")
     fi
     
@@ -165,7 +169,12 @@ process_miners_parallel() {
   for hostname in "${miners[@]}"; do
     hostname=$(echo "${hostname}" | xargs)
     if [[ -n "${hostname}" && -f "${temp_dir}/${hostname}.result" ]]; then
-      results+=("$(cat "${temp_dir}/${hostname}.result")")
+      local result_content=""
+      result_content=$(cat "${temp_dir}/${hostname}.result")
+      # Only include results that have the proper pipe-separated format (at least 8 pipes)
+      if [[ "${result_content}" =~ ^[^|]+\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|[^|]+$ ]]; then
+        results+=("${result_content}")
+      fi
     fi
   done
   
@@ -189,6 +198,11 @@ print_table() {
   
   # Print each result
   for result in "${results[@]}"; do
+    # Skip empty or invalid results
+    if [[ -z "${result}" || ! "${result}" =~ ^[^|]+\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|[^|]+\|[^|]+$ ]]; then
+      continue
+    fi
+    
     IFS='|' read -r hostname status uptime cpu memory disk block_height restarts mining_attempts_per_min <<< "${result}"
     
     # Simply print without any coloring - just clean aligned output
