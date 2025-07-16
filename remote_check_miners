@@ -54,16 +54,20 @@ check_miner() {
   local disk="N/A"
   local block_height="N/A"
   local restarts="N/A"
+  local mining_attempts_per_min="N/A"
   
   # Test SSH connectivity with timeout
   if ! timeout 15 ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" 'exit 0' 2>/dev/null; then
-    echo "${hostname}|❌ SSH FAIL|N/A|N/A|N/A|N/A|N/A|N/A"
+    echo "${hostname}|❌ SSH FAIL|N/A|N/A|N/A|N/A|N/A|N/A|N/A"
     return 1
   fi
   
   # Check if systemd service exists and get status
   local service_status=""
-  service_status=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "systemctl is-active ${service_name} 2>/dev/null || echo 'inactive'")
+  service_status=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "systemctl is-active ${service_name} 2>/dev/null || echo 'inactive'" 2>/dev/null)
+  
+  # Make sure we only get the first line if there are multiple lines
+  service_status=$(echo "${service_status}" | head -n1)
   
   if [[ "${service_status}" == "active" ]]; then
     status="✅ ACTIVE"
@@ -107,14 +111,24 @@ check_miner() {
     # Get restart count in last 24 hours
     restarts=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "journalctl -u ${service_name} --since '24 hours ago' --no-pager | grep -c 'Started' 2>/dev/null || echo '0'")
     
+    # Get mining attempts per minute (based on last 60 minutes)
+    local mining_attempts_60min=""
+    mining_attempts_60min=$(timeout 20 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "journalctl -u ${service_name} --since '60 minutes ago' --no-pager | grep -c \"didn't find block, starting new attempt\" 2>/dev/null || echo '0'")
+    local mining_attempts_per_min="N/A"
+    if [[ "${mining_attempts_60min}" != "0" && "${mining_attempts_60min}" -gt 0 ]]; then
+      mining_attempts_per_min=$(echo "scale=1; ${mining_attempts_60min} / 60" | bc 2>/dev/null || echo "N/A")
+    fi
+    
   elif [[ "${service_status}" == "inactive" ]]; then
-    status="❌ INACTIVE"
+    # Skip inactive services - don't include them in the output
+    return 1
   else
     status="⚠️ ${service_status}"
   fi
   
-  # Output in pipe-separated format for table processing
-  echo "${hostname}|${status}|${uptime}|${cpu}|${memory}|${disk}|${block_height}|${restarts}"
+  # Output in pipe-separated format for table processing (ensure single line)
+  local output="${hostname}|${status}|${uptime}|${cpu}|${memory}|${disk}|${block_height}|${restarts}|${mining_attempts_per_min}"
+  echo "${output}"
   
   # Return 0 if active, 1 otherwise (but don't let this fail the script)
   if [[ "${service_status}" == "active" ]]; then
@@ -170,85 +184,24 @@ print_table() {
   local -a results=("$@")
   
   # Print table header
-  printf "%-15s %-12s %-11s %-8s %-8s %-8s %-12s %-8s\n" "HOSTNAME" "STATUS" "UPTIME" "CPU" "MEMORY" "DISK" "BLOCK HEIGHT" "RESTARTS"
-  printf "%-15s %-12s %-11s %-8s %-8s %-8s %-12s %-8s\n" "===============" "============" "===========" "========" "========" "========" "============" "========"
+  printf "%-15s %-14s %-11s %-8s %-8s %-8s %-12s %-8s %-12s\n" "HOSTNAME" "STATUS" "UPTIME" "CPU" "MEMORY" "DISK" "BLOCK HEIGHT" "RESTARTS" "MINING/MIN"
+  printf "%-15s %-14s %-11s %-8s %-8s %-8s %-12s %-8s %-12s\n" "===============" "==============" "===========" "========" "========" "========" "============" "========" "============"
   
   # Print each result
   for result in "${results[@]}"; do
-    IFS='|' read -r hostname status uptime cpu memory disk block_height restarts <<< "${result}"
+    IFS='|' read -r hostname status uptime cpu memory disk block_height restarts mining_attempts_per_min <<< "${result}"
     
-    # Apply color coding based on status
-    local colored_status=""
-    if [[ "${status}" == *"ACTIVE"* ]]; then
-      colored_status="${GREEN}${status}${NC}"
-    elif [[ "${status}" == *"INACTIVE"* ]] || [[ "${status}" == *"FAIL"* ]]; then
-      colored_status="${RED}${status}${NC}"
-    else
-      colored_status="${YELLOW}${status}${NC}"
-    fi
-    
-    # Apply color coding to resource usage
-    local colored_cpu="${cpu}"
-    if [[ "${cpu}" != "N/A" ]]; then
-      local cpu_num="${cpu%\%}"
-      if (( $(echo "${cpu_num} > 80" | bc -l 2>/dev/null || echo 0) )); then
-        colored_cpu="${RED}${cpu}${NC}"
-      elif (( $(echo "${cpu_num} > 60" | bc -l 2>/dev/null || echo 0) )); then
-        colored_cpu="${YELLOW}${cpu}${NC}"
-      else
-        colored_cpu="${GREEN}${cpu}${NC}"
-      fi
-    fi
-    
-    local colored_memory="${memory}"
-    if [[ "${memory}" != "N/A" ]]; then
-      local mem_num="${memory%\%}"
-      if (( $(echo "${mem_num} > 80" | bc -l 2>/dev/null || echo 0) )); then
-        colored_memory="${RED}${memory}${NC}"
-      elif (( $(echo "${mem_num} > 60" | bc -l 2>/dev/null || echo 0) )); then
-        colored_memory="${YELLOW}${memory}${NC}"
-      else
-        colored_memory="${GREEN}${memory}${NC}"
-      fi
-    fi
-    
-    local colored_disk="${disk}"
-    if [[ "${disk}" != "N/A" ]]; then
-      local disk_num="${disk%\%}"
-      if (( disk_num > 80 )); then
-        colored_disk="${RED}${disk}${NC}"
-      elif (( disk_num > 60 )); then
-        colored_disk="${YELLOW}${disk}${NC}"
-      else
-        colored_disk="${GREEN}${disk}${NC}"
-      fi
-    fi
-    
-    local colored_block_height="${block_height}"
-    if [[ "${block_height}" != "N/A" ]]; then
-      colored_block_height="${GREEN}${block_height}${NC}"
-    fi
-    
-    # Format with proper spacing - build the line with colors
-    local line=""
-    line+="$(printf "%-15s " "${hostname}")"
-    line+="$(printf "%-13s " "${status}")"  # Use original status for width calculation
-    line+="$(printf "%-11s " "${uptime}")"  # Add one more space for alignment
-    line+="$(printf "%-8s " "${cpu}")"      # Use original values for width calculation
-    line+="$(printf "%-8s " "${memory}")"
-    line+="$(printf "%-8s " "${disk}")"
-    line+="$(printf "%-12s " "${block_height}")"
-    line+="$(printf "%-8s" "${restarts}")"
-    
-    # Now replace the original values with colored versions
-    line="${line/${status}/${colored_status}}"
-    line="${line/${cpu}/${colored_cpu}}"
-    line="${line/${memory}/${colored_memory}}"
-    line="${line/${disk}/${colored_disk}}"
-    line="${line/${block_height}/${colored_block_height}}"
-    
-    # Print the line with colors interpreted
-    echo -e "${line}"
+    # Simply print without any coloring - just clean aligned output
+    printf "%-15s %-15s %-11s %-8s %-8s %-8s %-12s %-8s %-12s\n" \
+      "${hostname}" \
+      "${status}" \
+      "${uptime}" \
+      "${cpu}" \
+      "${memory}" \
+      "${disk}" \
+      "${block_height}" \
+      "${restarts}" \
+      "${mining_attempts_per_min}"
   done
 }
 
