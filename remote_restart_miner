@@ -11,7 +11,7 @@
 #   ./remote_restart_miner            # restart on all hosts
 # ------------------------------------------------------------
 
-set -euo pipefail
+set -o pipefail  # Removed -e flag to avoid systemctl exit code issues
 
 # ---------- 0. Colors for output ----------------------------
 RED='\033[0;31m'
@@ -54,30 +54,30 @@ fi
 # ---------- 4. Function to restart miner on single host ----
 restart_miner() {
   local hostname="$1"
-  local service_name="nockchain-miner-0"
+  local service_name="nockchain-miner"
   
   echo -e "${BLUE}Restarting miner on ${hostname}...${NC}"
   
   # Test SSH connectivity
-  if ! ssh -o ConnectTimeout=10 -o BatchMode=yes "${hostname}" 'exit 0' 2>/dev/null; then
+  if ! ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" 'exit 0' 2>/dev/null; then
     echo -e "${RED}  ❌ SSH connection failed${NC}"
     return 1
   fi
   
   # Check if service exists
-  if ! ssh "${hostname}" "systemctl list-unit-files ${service_name}.service" 2>/dev/null | grep -q "${service_name}"; then
+  if ! ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "systemctl list-unit-files ${service_name}.service" 2>/dev/null | grep -q "${service_name}"; then
     echo -e "${RED}  ❌ Service ${service_name} not found${NC}"
     return 1
   fi
   
   # Get current service status
   local current_status
-  current_status=$(ssh "${hostname}" "systemctl is-active ${service_name} 2>/dev/null || echo 'inactive'")
+  current_status=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "systemctl is-active ${service_name} 2>/dev/null || echo 'inactive'")
   
   echo -e "  Current status: ${current_status}"
   
   # Restart the service
-  if ssh "${hostname}" "sudo systemctl restart ${service_name}" 2>/dev/null; then
+  if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "sudo systemctl restart ${service_name}" 2>/dev/null; then
     echo -e "${GREEN}  ✅ Restart command sent successfully${NC}"
     
     # Wait a moment for the service to start
@@ -85,14 +85,14 @@ restart_miner() {
     
     # Check new status
     local new_status
-    new_status=$(ssh "${hostname}" "systemctl is-active ${service_name} 2>/dev/null || echo 'inactive'")
+    new_status=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "systemctl is-active ${service_name} 2>/dev/null || echo 'inactive'")
     
     if [[ "${new_status}" == "active" ]]; then
       echo -e "${GREEN}  ✅ Service is now active${NC}"
       
       # Get uptime info
       local uptime_info
-      uptime_info=$(ssh "${hostname}" "systemctl show ${service_name} --property=ActiveEnterTimestamp --value 2>/dev/null || echo 'unknown'")
+      uptime_info=$(ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "systemctl show ${service_name} --property=ActiveEnterTimestamp --value 2>/dev/null || echo 'unknown'")
       if [[ "${uptime_info}" != "unknown" && -n "${uptime_info}" ]]; then
         echo -e "  Started: ${GREEN}${uptime_info}${NC}"
       fi
@@ -103,7 +103,7 @@ restart_miner() {
       
       # Show recent logs for debugging
       echo -e "  Recent logs:"
-      ssh "${hostname}" "journalctl -u ${service_name} -n 5 --no-pager" 2>/dev/null | sed 's/^/    /' || echo "    Unable to fetch logs"
+      ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "journalctl -u ${service_name} -n 5 --no-pager" 2>/dev/null | sed 's/^/    /' || echo "    Unable to fetch logs"
       
       return 1
     fi

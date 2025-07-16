@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# ------------------------------------------------------------
+# remote_get_status [HOSTNAME]
+#
+# Gets the systemd service status of nockchain miners on
+# remote VMs via SSH. If no hostname is provided, checks
+# all VMs listed in the MINERS_SSH environment variable.
+#
+# Usage: 
+#   ./remote_get_status hostname   # check specific host
+#   ./remote_get_status            # check all hosts
+# ------------------------------------------------------------
+
+set -o pipefail  # Removed -e flag to avoid systemctl status exit code issues
+
+# ---------- 0. Colors for output ----------------------------
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# ---------- 1. Locate repo root ------------------------------
+REPO_ROOT="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---------- 2. Load .env -------------------------------------
+if [[ -f "${REPO_ROOT}/.env" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "${REPO_ROOT}/.env"
+  set +a
+else
+  echo -e "${RED}ERROR: .env file not found. Please create one with MINERS_SSH variable.${NC}"
+  echo "Example: MINERS_SSH=hz1,hz2,hz3"
+  exit 1
+fi
+
+# ---------- 3. Parse arguments -------------------------------
+if [[ $# -eq 1 ]]; then
+  # Single hostname provided
+  MINERS=("$1")
+else
+  # Use all miners from .env
+  if [[ -z "${MINERS_SSH:-}" ]]; then
+    echo -e "${RED}ERROR: MINERS_SSH variable not set in .env file.${NC}"
+    echo "Please add: MINERS_SSH=hostname1,hostname2,hostname3"
+    exit 1
+  fi
+  
+  # Parse miners list
+  IFS=',' read -ra MINERS <<< "${MINERS_SSH}"
+fi
+
+# ---------- 4. Function to get status from single host ------
+get_miner_status() {
+  local hostname="$1"
+  local service_name="nockchain-miner"
+  
+  echo -e "${BLUE}Status for ${hostname}:${NC}"
+  
+  # Test SSH connectivity
+  if ! ssh -o ConnectTimeout=5 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" 'exit 0' 2>/dev/null; then
+    echo -e "${RED}  ❌ SSH connection failed${NC}"
+    return 1
+  fi
+  
+  # Get systemd service status and show the output
+  ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "sudo systemctl status ${service_name}" 2>/dev/null || {
+    echo -e "${RED}  ❌ Failed to get service status${NC}"
+    return 1
+  }
+  
+  echo -e "${GREEN}  ✅ Status retrieved successfully${NC}"
+  return 0
+}
+
+# ---------- 5. Main execution --------------------------------
+echo -e "${BLUE}===========================================${NC}"
+echo -e "${BLUE}      NOCKCHAIN MINER STATUS${NC}"
+echo -e "${BLUE}===========================================${NC}"
+echo ""
+
+# Summary counters
+total_miners=0
+successful_checks=0
+failed_checks=0
+
+# Get status for each miner
+for hostname in "${MINERS[@]}"; do
+  # Trim whitespace
+  hostname=$(echo "${hostname}" | xargs)
+  
+  if [[ -z "${hostname}" ]]; then
+    continue
+  fi
+  
+  ((total_miners++))
+  
+  if get_miner_status "${hostname}"; then
+    ((successful_checks++))
+  else
+    ((failed_checks++))
+  fi
+  
+  echo ""
+done
+
+# ---------- 6. Summary report --------------------------------
+echo -e "${BLUE}===========================================${NC}"
+echo -e "${BLUE}                SUMMARY${NC}"
+echo -e "${BLUE}===========================================${NC}"
+echo -e "Total miners: ${total_miners}"
+echo -e "Successful checks: ${GREEN}${successful_checks}${NC}"
+echo -e "Failed checks: ${RED}${failed_checks}${NC}"
+
+if (( failed_checks == 0 )); then
+  echo -e "${GREEN}🎉 All status checks completed successfully!${NC}"
+else
+  echo -e "${RED}🚨 Some status checks failed${NC}"
+fi
+
+echo ""
+echo -e "${BLUE}===========================================${NC}"
+
+# Exit with error code if any failures occurred
+exit $((failed_checks > 0 ? 1 : 0))
