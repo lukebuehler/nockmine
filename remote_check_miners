@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # ------------------------------------------------------------
-# check_miners
+# remote_check_miners
 #
 # Checks the status and health of nockchain miners running
 # on remote VMs via SSH. Reads VM hostnames from .env file.
 #
-# Usage: ./check_miners
+# Usage: ./remote_check_miners
 # ------------------------------------------------------------
 
-set -euo pipefail
+set -eo pipefail  # Removed -u flag to avoid unbound variable issues
 
 # ---------- 0. Colors for output ----------------------------
 RED='\033[0;31m'
@@ -18,12 +18,11 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # ---------- 1. Locate repo root ------------------------------
-REPO_ROOT="$(cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd -- "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 
 # ---------- 2. Load .env -------------------------------------
 if [[ -f "${REPO_ROOT}/.env" ]]; then
   set -a
-  # shellcheck disable=SC1090
   source "${REPO_ROOT}/.env"
   set +a
 else
@@ -45,227 +44,225 @@ IFS=',' read -ra MINERS <<< "${MINERS_SSH}"
 # ---------- 5. Function to check a single miner -------------
 check_miner() {
   local hostname="$1"
-  local miner_index="${2:-0}"
-  local service_name="nockchain-miner-${miner_index}"
+  local service_name="nockchain-miner"
   
-  echo -e "${BLUE}Checking miner on ${hostname}...${NC}"
+  # Initialize result variables
+  local status="❌ ERROR"
+  local uptime="N/A"
+  local cpu="N/A"
+  local memory="N/A"
+  local disk="N/A"
+  local block_height="N/A"
   
-  # Test SSH connectivity
-  if ! ssh -o ConnectTimeout=10 -o BatchMode=yes "${hostname}" 'exit 0' 2>/dev/null; then
-    echo -e "${RED}  ❌ SSH connection failed${NC}"
+  # Test SSH connectivity with timeout
+  if ! timeout 15 ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" 'exit 0' 2>/dev/null; then
+    echo "${hostname}|❌ SSH FAIL|N/A|N/A|N/A|N/A|N/A"
     return 1
   fi
   
   # Check if systemd service exists and get status
-  local service_status
-  service_status=$(ssh "${hostname}" "systemctl is-active ${service_name} 2>/dev/null || echo 'inactive'")
+  local service_status=""
+  service_status=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "systemctl is-active ${service_name} 2>/dev/null || echo 'inactive'")
   
-  local service_enabled
-  service_enabled=$(ssh "${hostname}" "systemctl is-enabled ${service_name} 2>/dev/null || echo 'disabled'")
-  
-  # Get service uptime if active
-  local uptime_info=""
   if [[ "${service_status}" == "active" ]]; then
-    uptime_info=$(ssh "${hostname}" "systemctl show ${service_name} --property=ActiveEnterTimestamp --value 2>/dev/null || echo 'unknown'")
+    status="✅ ACTIVE"
+    
+    # Get service uptime
+    local uptime_info=""
+    uptime_info=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "systemctl show ${service_name} --property=ActiveEnterTimestamp --value 2>/dev/null || echo 'unknown'")
     if [[ "${uptime_info}" != "unknown" && -n "${uptime_info}" ]]; then
-      local uptime_seconds
-      uptime_seconds=$(ssh "${hostname}" "date +%s")
-      local start_seconds
-      start_seconds=$(ssh "${hostname}" "date -d '${uptime_info}' +%s 2>/dev/null || echo '0'")
+      local uptime_seconds=""
+      uptime_seconds=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "date +%s")
+      local start_seconds=""
+      start_seconds=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "date -d '${uptime_info}' +%s 2>/dev/null || echo '0'")
       if [[ "${start_seconds}" != "0" ]]; then
         local uptime_duration=$((uptime_seconds - start_seconds))
-        uptime_info=$(ssh "${hostname}" "echo \$((${uptime_duration} / 3600))h \$(((${uptime_duration} % 3600) / 60))m")
-      else
-        uptime_info="unknown"
+        uptime="${uptime_duration}s"
+        if (( uptime_duration >= 3600 )); then
+          uptime="$((uptime_duration / 3600))h $((uptime_duration % 3600 / 60))m"
+        elif (( uptime_duration >= 60 )); then
+          uptime="$((uptime_duration / 60))m"
+        fi
       fi
     fi
-  fi
-  
-  # Get CPU and memory usage
-  local cpu_usage
-  cpu_usage=$(ssh "${hostname}" "top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{print 100 - \$1}' 2>/dev/null || echo 'unknown'")
-  
-  local memory_usage
-  memory_usage=$(ssh "${hostname}" "free | grep Mem | awk '{printf \"%.1f\", \$3/\$2 * 100.0}' 2>/dev/null || echo 'unknown'")
-  
-  # Get system load
-  local load_avg
-  load_avg=$(ssh "${hostname}" "uptime | awk -F'load average:' '{print \$2}' | sed 's/^ *//' 2>/dev/null || echo 'unknown'")
-  
-  # Get disk usage of root partition
-  local disk_usage
-  disk_usage=$(ssh "${hostname}" "df / | tail -1 | awk '{print \$5}' 2>/dev/null || echo 'unknown'")
-  
-  # Get miner process info if service is active
-  local process_info=""
-  if [[ "${service_status}" == "active" ]]; then
-    process_info=$(ssh "${hostname}" "ps aux | grep '[n]ockchain.*--mine' | head -1 | awk '{print \"PID: \" \$2 \", CPU: \" \$3 \"%, MEM: \" \$4 \"%\"}' 2>/dev/null || echo 'process not found'")
-  fi
-  
-  # Get latest block height from service logs
-  local block_height=""
-  local last_block_time=""
-  if [[ "${service_status}" == "active" ]]; then
-    # Get the latest block height from logs
-    local height_match
-    height_match=$(ssh "${hostname}" "journalctl -u ${service_name} -n 2000 --no-pager | grep -E 'added to validated blocks at [0-9]+ with proof version' | tail -1 | sed -n 's/.*added to validated blocks at \\([0-9]\\+\\) with proof version.*/\\1/p'" 2>/dev/null || echo "")
+    
+    # Get CPU usage
+    cpu=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "top -bn1 | grep 'Cpu(s)' | sed 's/.*, *\\([0-9.]*\\)%* id.*/\\1/' | awk '{printf \"%.1f%%\", 100 - \$1}' 2>/dev/null || echo 'N/A'")
+    
+    # Get memory usage
+    memory=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "free | grep Mem | awk '{printf \"%.1f%%\", \$3/\$2 * 100.0}' 2>/dev/null || echo 'N/A'")
+    
+    # Get disk usage of root partition
+    disk=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "df / | tail -1 | awk '{print \$5}' 2>/dev/null || echo 'N/A'")
+    
+    # Get latest block height from service logs
+    local height_match=""
+    height_match=$(timeout 15 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "journalctl -u ${service_name} -n 2000 --no-pager | grep -E 'added to validated blocks at [0-9]+ with proof version' | tail -1 | sed -n 's/.*added to validated blocks at \\([0-9]\\+\\) with proof version.*/\\1/p'" 2>/dev/null || echo "")
     
     if [[ -n "${height_match}" ]]; then
-      # Block height is now without dot separator
       block_height="${height_match}"
-      
-      # Get the timestamp of this log entry
-      last_block_time=$(ssh "${hostname}" "journalctl -u ${service_name} -n 2000 --no-pager | grep -E 'added to validated blocks at [0-9]+ with proof version' | tail -1 | awk '{print \$1, \$2, \$3}'" 2>/dev/null || echo "")
     fi
-  fi
-  
-  # Print status report
-  echo "  Host: ${hostname}"
-  
-  if [[ "${service_status}" == "active" ]]; then
-    echo -e "  Service: ${GREEN}✅ ${service_name} (${service_status}/${service_enabled})${NC}"
-    if [[ -n "${uptime_info}" && "${uptime_info}" != "unknown" ]]; then
-      echo -e "  Uptime: ${GREEN}${uptime_info}${NC}"
-    fi
-    if [[ -n "${process_info}" && "${process_info}" != "process not found" ]]; then
-      echo -e "  Process: ${GREEN}${process_info}${NC}"
-    fi
-    if [[ -n "${block_height}" ]]; then
-      echo -e "  Block Height: ${GREEN}${block_height}${NC}"
-      if [[ -n "${last_block_time}" ]]; then
-        echo -e "  Last Block: ${GREEN}${last_block_time}${NC}"
-      fi
-    else
-      echo -e "  Block Height: ${YELLOW}no recent blocks found${NC}"
-    fi
+    
   elif [[ "${service_status}" == "inactive" ]]; then
-    echo -e "  Service: ${RED}❌ ${service_name} (${service_status}/${service_enabled})${NC}"
+    status="❌ INACTIVE"
   else
-    echo -e "  Service: ${YELLOW}⚠️  ${service_name} (${service_status}/${service_enabled})${NC}"
+    status="⚠️ ${service_status}"
   fi
   
-  # System resources
-  echo "  System Resources:"
-  if [[ "${cpu_usage}" != "unknown" ]]; then
-    if (( $(echo "${cpu_usage} > 80" | bc -l 2>/dev/null || echo 0) )); then
-      echo -e "    CPU: ${RED}${cpu_usage}%${NC}"
-    elif (( $(echo "${cpu_usage} > 60" | bc -l 2>/dev/null || echo 0) )); then
-      echo -e "    CPU: ${YELLOW}${cpu_usage}%${NC}"
-    else
-      echo -e "    CPU: ${GREEN}${cpu_usage}%${NC}"
-    fi
+  # Output in pipe-separated format for table processing
+  echo "${hostname}|${status}|${uptime}|${cpu}|${memory}|${disk}|${block_height}"
+  
+  # Return 0 if active, 1 otherwise (but don't let this fail the script)
+  if [[ "${service_status}" == "active" ]]; then
+    return 0
   else
-    echo -e "    CPU: ${YELLOW}unknown${NC}"
+    return 1
   fi
-  
-  if [[ "${memory_usage}" != "unknown" ]]; then
-    if (( $(echo "${memory_usage} > 80" | bc -l 2>/dev/null || echo 0) )); then
-      echo -e "    Memory: ${RED}${memory_usage}%${NC}"
-    elif (( $(echo "${memory_usage} > 60" | bc -l 2>/dev/null || echo 0) )); then
-      echo -e "    Memory: ${YELLOW}${memory_usage}%${NC}"
-    else
-      echo -e "    Memory: ${GREEN}${memory_usage}%${NC}"
-    fi
-  else
-    echo -e "    Memory: ${YELLOW}unknown${NC}"
-  fi
-  
-  if [[ "${disk_usage}" != "unknown" ]]; then
-    local disk_num="${disk_usage%\%}"
-    if (( disk_num > 80 )); then
-      echo -e "    Disk: ${RED}${disk_usage}${NC}"
-    elif (( disk_num > 60 )); then
-      echo -e "    Disk: ${YELLOW}${disk_usage}${NC}"
-    else
-      echo -e "    Disk: ${GREEN}${disk_usage}${NC}"
-    fi
-  else
-    echo -e "    Disk: ${YELLOW}unknown${NC}"
-  fi
-  
-
-  
-  echo ""
 }
 
-# ---------- 6. Main execution --------------------------------
+# ---------- 6. Function to process miners in parallel -----
+process_miners_parallel() {
+  local -a miners=("$@")
+  local batch_size=10  # Number of miners to process in parallel
+  local temp_dir=$(mktemp -d)
+  
+  # Process miners in batches
+  for ((i=0; i<${#miners[@]}; i+=batch_size)); do
+    local batch=("${miners[@]:i:batch_size}")
+    
+    # Start background jobs for this batch
+    for hostname in "${batch[@]}"; do
+      hostname=$(echo "${hostname}" | xargs)
+      if [[ -n "${hostname}" ]]; then
+        check_miner "${hostname}" > "${temp_dir}/${hostname}.result" 2>&1 &
+      fi
+    done
+    
+    # Wait for all jobs in this batch to complete
+    wait || true  # Don't fail if some checks return error codes
+  done
+  
+  # Collect and sort results
+  local results=()
+  for hostname in "${miners[@]}"; do
+    hostname=$(echo "${hostname}" | xargs)
+    if [[ -n "${hostname}" && -f "${temp_dir}/${hostname}.result" ]]; then
+      results+=("$(cat "${temp_dir}/${hostname}.result")")
+    fi
+  done
+  
+  # Clean up
+  rm -rf "${temp_dir}"
+  
+  # Sort results by hostname and output
+  printf '%s\n' "${results[@]}" | sort
+  
+  # Return 0 to indicate success
+  return 0
+}
+
+# ---------- 7. Function to print table -----------------------
+print_table() {
+  local -a results=("$@")
+  
+  # Print table header
+  printf "%-15s %-12s %-11s %-8s %-8s %-8s %-12s\n" "HOSTNAME" "STATUS" "UPTIME" "CPU" "MEMORY" "DISK" "BLOCK HEIGHT"
+  printf "%-15s %-12s %-11s %-8s %-8s %-8s %-12s\n" "===============" "============" "===========" "========" "========" "========" "============"
+  
+  # Print each result
+  for result in "${results[@]}"; do
+    IFS='|' read -r hostname status uptime cpu memory disk block_height <<< "${result}"
+    
+    # Apply color coding based on status
+    local colored_status=""
+    if [[ "${status}" == *"ACTIVE"* ]]; then
+      colored_status="${GREEN}${status}${NC}"
+    elif [[ "${status}" == *"INACTIVE"* ]] || [[ "${status}" == *"FAIL"* ]]; then
+      colored_status="${RED}${status}${NC}"
+    else
+      colored_status="${YELLOW}${status}${NC}"
+    fi
+    
+    # Apply color coding to resource usage
+    local colored_cpu="${cpu}"
+    if [[ "${cpu}" != "N/A" ]]; then
+      local cpu_num="${cpu%\%}"
+      if (( $(echo "${cpu_num} > 80" | bc -l 2>/dev/null || echo 0) )); then
+        colored_cpu="${RED}${cpu}${NC}"
+      elif (( $(echo "${cpu_num} > 60" | bc -l 2>/dev/null || echo 0) )); then
+        colored_cpu="${YELLOW}${cpu}${NC}"
+      else
+        colored_cpu="${GREEN}${cpu}${NC}"
+      fi
+    fi
+    
+    local colored_memory="${memory}"
+    if [[ "${memory}" != "N/A" ]]; then
+      local mem_num="${memory%\%}"
+      if (( $(echo "${mem_num} > 80" | bc -l 2>/dev/null || echo 0) )); then
+        colored_memory="${RED}${memory}${NC}"
+      elif (( $(echo "${mem_num} > 60" | bc -l 2>/dev/null || echo 0) )); then
+        colored_memory="${YELLOW}${memory}${NC}"
+      else
+        colored_memory="${GREEN}${memory}${NC}"
+      fi
+    fi
+    
+    local colored_disk="${disk}"
+    if [[ "${disk}" != "N/A" ]]; then
+      local disk_num="${disk%\%}"
+      if (( disk_num > 80 )); then
+        colored_disk="${RED}${disk}${NC}"
+      elif (( disk_num > 60 )); then
+        colored_disk="${YELLOW}${disk}${NC}"
+      else
+        colored_disk="${GREEN}${disk}${NC}"
+      fi
+    fi
+    
+    local colored_block_height="${block_height}"
+    if [[ "${block_height}" != "N/A" ]]; then
+      colored_block_height="${GREEN}${block_height}${NC}"
+    fi
+    
+    # Format with proper spacing - build the line with colors
+    local line=""
+    line+="$(printf "%-15s " "${hostname}")"
+    line+="$(printf "%-13s " "${status}")"  # Use original status for width calculation
+    line+="$(printf "%-11s " "${uptime}")"  # Add one more space for alignment
+    line+="$(printf "%-8s " "${cpu}")"      # Use original values for width calculation
+    line+="$(printf "%-8s " "${memory}")"
+    line+="$(printf "%-8s " "${disk}")"
+    line+="$(printf "%-12s" "${block_height}")"
+    
+    # Now replace the original values with colored versions
+    line="${line/${status}/${colored_status}}"
+    line="${line/${cpu}/${colored_cpu}}"
+    line="${line/${memory}/${colored_memory}}"
+    line="${line/${disk}/${colored_disk}}"
+    line="${line/${block_height}/${colored_block_height}}"
+    
+    # Print the line with colors interpreted
+    echo -e "${line}"
+  done
+}
+
+# ---------- 8. Main execution --------------------------------
 echo -e "${BLUE}===========================================${NC}"
 echo -e "${BLUE}      NOCKCHAIN MINERS HEALTH CHECK${NC}"
 echo -e "${BLUE}===========================================${NC}"
 echo ""
 
-# Summary counters
-total_miners=0
-active_miners=0
-inactive_miners=0
-error_miners=0
+# Process all miners in parallel and get results
+echo -e "${BLUE}Checking ${#MINERS[@]} miners in parallel...${NC}"
+echo ""
 
-# Arrays to store block heights for summary
-declare -a block_heights
-declare -a block_hosts
+# Get results from parallel processing
+mapfile -t results < <(process_miners_parallel "${MINERS[@]}")
+exit_code=$?
 
-# Check each miner
-for hostname in "${MINERS[@]}"; do
-  # Trim whitespace
-  hostname=$(echo "${hostname}" | xargs)
-  
-  if [[ -z "${hostname}" ]]; then
-    continue
-  fi
-  
-  ((total_miners++))
-  
-  if check_miner "${hostname}" 0; then
-    # Check if service is actually active
-    service_status=$(ssh "${hostname}" "systemctl is-active nockchain-miner-0 2>/dev/null || echo 'inactive'")
-    if [[ "${service_status}" == "active" ]]; then
-      ((active_miners++))
-      
-      # Get block height for summary
-      height_match=$(ssh "${hostname}" "journalctl -u nockchain-miner-0 -n 4000 --no-pager | grep -E 'added to validated blocks at [0-9]+ with proof version' | tail -1 | sed -n 's/.*added to validated blocks at \\([0-9]\\+\\) with proof version.*/\\1/p'" 2>/dev/null || echo "")
-      
-      if [[ -n "${height_match}" ]]; then
-        block_height="${height_match}"
-        block_heights+=("${block_height}")
-        block_hosts+=("${hostname}")
-      fi
-    else
-      ((inactive_miners++))
-    fi
-  else
-    ((error_miners++))
-  fi
-done
-
-# ---------- 7. Summary report --------------------------------
-echo -e "${BLUE}===========================================${NC}"
-echo -e "${BLUE}                SUMMARY${NC}"
-echo -e "${BLUE}===========================================${NC}"
-echo -e "Total miners checked: ${total_miners}"
-echo -e "Active miners: ${GREEN}${active_miners}${NC}"
-echo -e "Inactive miners: ${RED}${inactive_miners}${NC}"
-echo -e "Connection errors: ${RED}${error_miners}${NC}"
-
-# Calculate health percentage
-if (( total_miners > 0 )); then
-  health_percentage=$(( (active_miners * 100) / total_miners ))
-  echo -e "Overall health: ${GREEN}${health_percentage}%${NC}"
-  
-  if (( health_percentage == 100 )); then
-    echo -e "${GREEN}🎉 All miners are healthy!${NC}"
-  else
-    echo -e "${RED}🚨 Some miners are down${NC}"
-  fi
-fi
-
-# Display block heights summary
-if (( ${#block_heights[@]} > 0 )); then
-  echo ""
-  echo -e "${BLUE}Block Heights:${NC}"
-  for i in "${!block_heights[@]}"; do
-    echo -e "  ${block_hosts[$i]}: ${GREEN}${block_heights[$i]}${NC}"
-  done
-fi
+# Print results table
+print_table "${results[@]}"
 
 echo ""
-echo -e "${BLUE}===========================================${NC}"
+
