@@ -53,10 +53,11 @@ check_miner() {
   local memory="N/A"
   local disk="N/A"
   local block_height="N/A"
+  local restarts="N/A"
   
   # Test SSH connectivity with timeout
   if ! timeout 15 ssh -o ConnectTimeout=10 -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" 'exit 0' 2>/dev/null; then
-    echo "${hostname}|❌ SSH FAIL|N/A|N/A|N/A|N/A|N/A"
+    echo "${hostname}|❌ SSH FAIL|N/A|N/A|N/A|N/A|N/A|N/A"
     return 1
   fi
   
@@ -103,6 +104,9 @@ check_miner() {
       block_height="${height_match}"
     fi
     
+    # Get restart count in last 24 hours
+    restarts=$(timeout 10 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "journalctl -u ${service_name} --since '24 hours ago' --no-pager | grep -c 'Started' 2>/dev/null || echo '0'")
+    
   elif [[ "${service_status}" == "inactive" ]]; then
     status="❌ INACTIVE"
   else
@@ -110,7 +114,7 @@ check_miner() {
   fi
   
   # Output in pipe-separated format for table processing
-  echo "${hostname}|${status}|${uptime}|${cpu}|${memory}|${disk}|${block_height}"
+  echo "${hostname}|${status}|${uptime}|${cpu}|${memory}|${disk}|${block_height}|${restarts}"
   
   # Return 0 if active, 1 otherwise (but don't let this fail the script)
   if [[ "${service_status}" == "active" ]]; then
@@ -166,12 +170,12 @@ print_table() {
   local -a results=("$@")
   
   # Print table header
-  printf "%-15s %-12s %-11s %-8s %-8s %-8s %-12s\n" "HOSTNAME" "STATUS" "UPTIME" "CPU" "MEMORY" "DISK" "BLOCK HEIGHT"
-  printf "%-15s %-12s %-11s %-8s %-8s %-8s %-12s\n" "===============" "============" "===========" "========" "========" "========" "============"
+  printf "%-15s %-12s %-11s %-8s %-8s %-8s %-12s %-8s\n" "HOSTNAME" "STATUS" "UPTIME" "CPU" "MEMORY" "DISK" "BLOCK HEIGHT" "RESTARTS"
+  printf "%-15s %-12s %-11s %-8s %-8s %-8s %-12s %-8s\n" "===============" "============" "===========" "========" "========" "========" "============" "========"
   
   # Print each result
   for result in "${results[@]}"; do
-    IFS='|' read -r hostname status uptime cpu memory disk block_height <<< "${result}"
+    IFS='|' read -r hostname status uptime cpu memory disk block_height restarts <<< "${result}"
     
     # Apply color coding based on status
     local colored_status=""
@@ -233,7 +237,8 @@ print_table() {
     line+="$(printf "%-8s " "${cpu}")"      # Use original values for width calculation
     line+="$(printf "%-8s " "${memory}")"
     line+="$(printf "%-8s " "${disk}")"
-    line+="$(printf "%-12s" "${block_height}")"
+    line+="$(printf "%-12s " "${block_height}")"
+    line+="$(printf "%-8s" "${restarts}")"
     
     # Now replace the original values with colored versions
     line="${line/${status}/${colored_status}}"
