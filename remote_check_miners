@@ -116,7 +116,7 @@ check_miner() {
     
     # Get mining attempts per minute (based on last 60 minutes)
     local mining_attempts_60min=""
-    mining_attempts_60min=$(timeout 20 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "journalctl -u ${service_name} --since '60 minutes ago' --no-pager | grep -c \"didn't find block, starting new attempt\" 2>/dev/null || echo '0'")
+    mining_attempts_60min=$(timeout 20 ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR "${hostname}" "journalctl -u ${service_name} --since '60 minutes ago' --no-pager | grep -c 'starting new attempt' 2>/dev/null || echo '0'")
     
     # Ensure we only get the first line and strip whitespace
     mining_attempts_60min=$(echo "${mining_attempts_60min}" | head -n1 | xargs)
