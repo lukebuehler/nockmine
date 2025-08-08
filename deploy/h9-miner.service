@@ -1,0 +1,21 @@
+[Unit]
+Description=H9 Nockchain Miner
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/root/h9
+ExecStart=/root/h9/h9-miner-nock-linux-amd64 --config /root/h9/config.yaml
+Restart=always
+RestartSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=h9-miner
+
+# Resource limits
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target
