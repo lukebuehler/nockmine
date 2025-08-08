@@ -1,0 +1,56 @@
+# miner名称，不填使用电脑名
+# miner name, use the computer name without filling in
+minerName: <machine_name>
+
+# 在 https://www.hpool.in/center/configuration 找ApiKey
+# Find ApiKey at https://www.hpool.in/center/configuration
+apiKey: "nock0000-3f7d-7946-42d2-d665c1e8ee32"
+
+# 日志配置
+# Log configuration
+log:
+  lv: info
+  path: ./log/
+  name: miner.log
+
+# x-proxy配置
+# x-proxy configuration
+url:
+  # 一个局域网内，代理只需要开一台就可以了，如代理所在的机器Ip是192.168.1.88，端口9190
+  # 下面配置改为
+  # proxy: "http://192.168.1.88:9190"
+  # In a local area network, only one proxy is required. For example, the IP of the machine where the proxy is located is 192.168.1.88 and the port is 9190
+  # The following configuration is changed to
+  # proxy: "http://192.168.1.88:9190"
+  proxy: ""
+
+# socket 或者是http代理配置
+# socket5 or http proxy
+proxy:
+    # E.g http://127.0.0.1:8888 socks5://127.0.0.1:8888
+    url: ""
+    username: ""
+    password: ""
+
+# 语言选择
+# language selection
+language: en
+
+# 线路
+# line
+line: en
+
+# 参数配置
+# Parameter configuration
+extraParams:
+  # 计算线程，如果不填则使用全部线程，1个线程大约占2GB内存
+  # Calculation threads, if not filled, all threads will be used, about 2GB of memory per thread
+  threads: <number_of_threads>
+
+  # 线程绑定开始,-1为不绑定
+  # Thread binding start, -1 is not bound
+  affinityStart: 0
+
+  # 线程绑定间隔
+  # Thread binding step
+  affinityStep: 1
