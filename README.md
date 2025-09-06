@@ -25,3 +25,17 @@ Once miners are running connect to them with:
 ```
 tmux attach -t miners
 ```
+
+## Automated Setup with Ansible
+
+Instead of running all setup steps manually you can use the included Ansible
+playbook. See [docs/ansible.md](docs/ansible.md) for details. A typical run is:
+
+```
+ansible-playbook -i ansible/inventory ansible/provision.yml --tags setup
+ansible-playbook -i ansible/inventory ansible/provision.yml --tags bootstrap
+ansible-playbook -i ansible/inventory ansible/provision.yml --tags service
+```
+
+This installs dependencies, builds the software, bootstraps using your
+`state.jam` file and installs the systemd service.
